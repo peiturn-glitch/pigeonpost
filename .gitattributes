@@ -1,0 +1,2 @@
+# Alltid LF-radslut, oavsett operativsystem: koden byggs och körs i Linux-containrar.
+* text=auto eol=lf

@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    image: thunderbirdklon:latest
+    container_name: thunderbirdklon
+    ports:
+      - "8080:8080"
+    environment:
+      # Skapar första administratören vid start om inga användare finns. Utan dem visas i stället
+      # en installationssida där den som först öppnar appen blir administratör.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Nyckel som krypterar sparade kontolösenord. Genereras i /data/secret.key om den saknas.
+      SECRET_KEY: ${SECRET_KEY:-}
+      # Adressen som webbläsaren når appen på. Används som bas för Googles callback-adress.
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      # Google-inloggning för Gmail (OAuth-klient av typen "Webbapplikation"), se README.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - tbk-data:/data
+    restart: unless-stopped
+
+  # Lokal testmailserver för utveckling: docker compose --profile dev up
+  # Alla användarnamn/lösenord accepteras och brevlådor skapas automatiskt.
+  mailserver:
+    image: greenmail/standalone:2.1.3
+    profiles: ["dev"]
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.all
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.auth.disabled
+        -Dgreenmail.verbose
+    ports:
+      - "3025:3025"
+      - "3143:3143"
+
+volumes:
+  tbk-data:
