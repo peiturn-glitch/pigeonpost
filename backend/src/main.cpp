@@ -17,9 +17,20 @@
 #include <sstream>
 #include <thread>
 
+// Appen hette tidigare ThunderbirdKlon. Flytta en befintlig databas (med WAL-filer) till det nya namnet.
+void migrateLegacyDatabaseName(const std::filesystem::path& dbPath) {
+    std::filesystem::path legacy = dbPath.parent_path() / "thunderbirdklon.db";
+    if (std::filesystem::exists(dbPath) || !std::filesystem::exists(legacy)) return;
+    for (const char* suffix : {"", "-wal", "-shm"}) {
+        std::filesystem::path from = legacy.string() + suffix;
+        if (std::filesystem::exists(from)) std::filesystem::rename(from, dbPath.string() + suffix);
+    }
+    std::cout << "[main] Flyttade databasen " << legacy << " till " << dbPath << std::endl;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--healthcheck") {
-        const char* port = std::getenv("TBK_PORT");
+        const char* port = std::getenv("BREVDUVA_PORT");
         httplib::Client client("127.0.0.1", port ? std::atoi(port) : 8080);
         client.set_connection_timeout(3, 0);
         auto res = client.Get("/api/session");
@@ -35,15 +46,16 @@ int main(int argc, char** argv) {
     std::signal(SIGPIPE, SIG_IGN);
 
     try {
-        tbk::Config config = tbk::Config::fromEnvironment();
-        tbk::mime::init();
+        brevduva::Config config = brevduva::Config::fromEnvironment();
+        brevduva::mime::init();
         curl_global_init(CURL_GLOBAL_DEFAULT);
 
-        tbk::Database db((std::filesystem::path(config.dataDir) / "thunderbirdklon.db").string(),
-                         config.encryptionKey);
-        tbk::Auth auth(db);
-        tbk::GoogleOAuth oauth(config);
-        tbk::MailService mail(db, oauth);
+        std::filesystem::path dbPath = std::filesystem::path(config.dataDir) / "brevduva.db";
+        migrateLegacyDatabaseName(dbPath);
+        brevduva::Database db(dbPath.string(), config.encryptionKey);
+        brevduva::Auth auth(db);
+        brevduva::GoogleOAuth oauth(config);
+        brevduva::MailService mail(db, oauth);
         std::cout << "[main] Google-inloggning för Gmail: " << (oauth.configured() ? "aktiverad" : "inte konfigurerad")
                   << std::endl;
 
@@ -53,9 +65,9 @@ int main(int argc, char** argv) {
         }
         if (auth.setupRequired()) {
             if (!config.adminUsername.empty() && !config.adminPassword.empty()) {
-                tbk::Auth::validateUsername(config.adminUsername);
-                tbk::Auth::validatePassword(config.adminPassword);
-                db.createFirstAdmin(config.adminUsername, tbk::crypto::hashPassword(config.adminPassword));
+                brevduva::Auth::validateUsername(config.adminUsername);
+                brevduva::Auth::validatePassword(config.adminPassword);
+                db.createFirstAdmin(config.adminUsername, brevduva::crypto::hashPassword(config.adminPassword));
                 std::cout << "[main] Skapade administratören " << config.adminUsername << " från miljövariabler"
                           << std::endl;
             } else {
@@ -74,7 +86,7 @@ int main(int argc, char** argv) {
             {"X-Frame-Options", "DENY"},
         });
 
-        tbk::registerApi(server, db, auth, mail, oauth);
+        brevduva::registerApi(server, db, auth, mail, oauth);
 
         // Statiska filer från Vue-bygget, och index.html för alla övriga sökvägar (SPA-routing).
         if (std::filesystem::exists(config.staticDir)) {
@@ -109,7 +121,7 @@ int main(int argc, char** argv) {
         });
         signalThread.detach();
 
-        std::cout << "ThunderbirdKlon lyssnar på http://" << config.host << ":" << config.port << std::endl;
+        std::cout << "Brevduva lyssnar på http://" << config.host << ":" << config.port << std::endl;
         if (!server.listen(config.host, config.port)) {
             std::cerr << "Kunde inte lyssna på " << config.host << ":" << config.port << "\n";
             return 1;

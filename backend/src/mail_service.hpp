@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace tbk {
+namespace brevduva {
 
 using json = nlohmann::json;
 
@@ -103,4 +103,4 @@ private:
     std::map<long long, std::shared_ptr<Session>> sessions_;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

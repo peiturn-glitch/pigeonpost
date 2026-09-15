@@ -7,7 +7,7 @@
 #include <cctype>
 #include <ctime>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -120,4 +120,4 @@ void Auth::destroyOtherSessions(long long userId, const std::string& keepToken) 
     db_.deleteSessionsForUser(userId, keepToken.empty() ? "" : crypto::toHex(crypto::sha256(keepToken)));
 }
 
-}  // namespace tbk
+}  // namespace brevduva

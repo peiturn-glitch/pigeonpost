@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace tbk {
+namespace brevduva {
 
 struct User {
     long long id = 0;
@@ -113,4 +113,4 @@ private:
     std::recursive_mutex mutex_;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

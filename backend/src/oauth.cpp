@@ -10,7 +10,7 @@
 #include <iostream>
 #include <memory>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -267,4 +267,4 @@ void GoogleOAuth::revoke(const std::string& refreshToken) {
     }
 }
 
-}  // namespace tbk
+}  // namespace brevduva

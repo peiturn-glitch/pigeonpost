@@ -8,7 +8,7 @@ const TIMEOUT_MS = 10 * 60 * 1000
 // Returnerar { promise, cancel }. promise ger { state, email, name }.
 export function signInWithGoogle(loginHint = '') {
   // Fönstret måste öppnas direkt i klickhändelsen, annars stoppas det av popup-blockeraren.
-  const popup = window.open('', 'tbk-google-login', 'popup,width=520,height=680')
+  const popup = window.open('', 'brevduva-google-login', 'popup,width=520,height=680')
   let cancelled = false
   let cancelFn = () => {
     cancelled = true
@@ -32,7 +32,7 @@ export function signInWithGoogle(loginHint = '') {
     }
 
     return new Promise((resolve, reject) => {
-      const channel = 'BroadcastChannel' in window ? new BroadcastChannel('tbk-oauth') : null
+      const channel = 'BroadcastChannel' in window ? new BroadcastChannel('brevduva-oauth') : null
       const deadline = Date.now() + TIMEOUT_MS
       let finished = false
 

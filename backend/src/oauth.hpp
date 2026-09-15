@@ -9,7 +9,7 @@
 #include <optional>
 #include <string>
 
-namespace tbk {
+namespace brevduva {
 
 // Google-inloggning (OAuth 2.0 med PKCE) för Gmail via IMAP/SMTP med SASL XOAUTH2.
 class GoogleOAuth {
@@ -78,4 +78,4 @@ private:
     std::map<long long, CachedToken> tokens_;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

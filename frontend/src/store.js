@@ -15,7 +15,7 @@ const PAGE_SIZE = 100
 
 function loadExpanded() {
   try {
-    return new Set(JSON.parse(localStorage.getItem('tbk.expanded') || '[]'))
+    return new Set(JSON.parse(localStorage.getItem('brevduva.expanded') || '[]'))
   } catch {
     return new Set()
   }
@@ -119,7 +119,7 @@ export const useMailStore = defineStore('mail', () => {
     else next.add(key)
     expanded.value = next
     try {
-      localStorage.setItem('tbk.expanded', JSON.stringify([...next]))
+      localStorage.setItem('brevduva.expanded', JSON.stringify([...next]))
     } catch {
       // Lagring otillgänglig; expanderingen gäller bara denna flik.
     }

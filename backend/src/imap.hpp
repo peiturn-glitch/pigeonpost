@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace tbk {
+namespace brevduva {
 
 enum class Security { None, StartTls, Tls };
 
@@ -118,4 +118,4 @@ private:
     std::uint32_t tagCounter_ = 0;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

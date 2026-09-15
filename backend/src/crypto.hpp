@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace tbk::crypto {
+namespace brevduva::crypto {
 
 std::string randomBytes(std::size_t n);
 std::string toHex(const std::string& bytes);
@@ -19,4 +19,4 @@ bool verifyPassword(const std::string& password, const std::string& encoded);
 std::string encrypt(const std::string& key32, const std::string& plaintext);
 std::string decrypt(const std::string& key32, const std::string& token);
 
-}  // namespace tbk::crypto
+}  // namespace brevduva::crypto

@@ -6,7 +6,7 @@
 #include <memory>
 #include <stdexcept>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -472,4 +472,4 @@ void Database::deleteIdentity(long long id) {
     Stmt(db_, "DELETE FROM identities WHERE id = ?").bind(1, id).run();
 }
 
-}  // namespace tbk
+}  // namespace brevduva

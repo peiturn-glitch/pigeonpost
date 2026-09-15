@@ -49,7 +49,7 @@ async function submit() {
   <div class="login">
     <form class="card" @submit.prevent="submit">
       <div class="logo"><Icon name="mail" :size="36" /></div>
-      <h1>ThunderbirdKlon</h1>
+      <h1>Brevduva</h1>
       <p v-if="setup" class="muted">
         Välkommen! Skapa administratörskontot. Administratören kan sedan lägga till fler användare.
       </p>

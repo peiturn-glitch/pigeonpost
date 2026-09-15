@@ -58,7 +58,7 @@ function onDragStart(event, m) {
   const uids = [...store.selection]
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData(
-    'application/x-tbk-messages',
+    'application/x-brevduva-messages',
     JSON.stringify({ accountId: store.current.accountId, folder: store.current.folder, uids }),
   )
   event.dataTransfer.setData('text/plain', `${uids.length} meddelande(n)`)

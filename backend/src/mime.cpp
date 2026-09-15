@@ -9,7 +9,7 @@
 #include <cctype>
 #include <memory>
 
-namespace tbk::mime {
+namespace brevduva::mime {
 
 namespace {
 
@@ -300,7 +300,7 @@ BuiltMessage buildMessage(const OutgoingMessage& in) {
     if (!in.references.empty()) {
         g_mime_object_set_header(GMIME_OBJECT(msg.get()), "References", in.references.c_str(), nullptr);
     }
-    g_mime_object_set_header(GMIME_OBJECT(msg.get()), "User-Agent", "ThunderbirdKlon/0.1", nullptr);
+    g_mime_object_set_header(GMIME_OBJECT(msg.get()), "User-Agent", "Brevduva/0.1", nullptr);
 
     GMimeObject* text = textPart(in.text);
     if (in.attachments.empty()) {
@@ -323,4 +323,4 @@ BuiltMessage buildMessage(const OutgoingMessage& in) {
     return built;
 }
 
-}  // namespace tbk::mime
+}  // namespace brevduva::mime

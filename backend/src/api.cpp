@@ -12,7 +12,7 @@
 #include <iostream>
 #include <set>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -383,7 +383,7 @@ std::string oauthCallbackPage(const std::string& state, bool ok) {
     return "<!doctype html><html lang=\"sv\"><head><meta charset=\"utf-8\"><title>Google-inloggning</title>"
            "<style>body{font:15px system-ui,sans-serif;margin:48px;text-align:center;color:#15141a}</style></head>"
            "<body><p>" + message + "</p><script>"
-           "try{new BroadcastChannel('tbk-oauth').postMessage({state:'" + state + "'})}catch(e){}"
+           "try{new BroadcastChannel('brevduva-oauth').postMessage({state:'" + state + "'})}catch(e){}"
            "setTimeout(function(){window.close()},400);</script></body></html>";
 }
 
@@ -407,8 +407,8 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     // CSRF-skydd: ändrande anrop måste bära en egen header, som webbläsare inte skickar cross-site utan CORS.
     server.set_pre_routing_handler([](const Request& req, Response& res) {
         if (req.path.rfind("/api/", 0) != 0) return httplib::Server::HandlerResponse::Unhandled;
-        if (req.method != "GET" && req.method != "HEAD" && req.get_header_value("X-TBK") != "1") {
-            sendError(res, 403, "Förfrågan saknar X-TBK-header");
+        if (req.method != "GET" && req.method != "HEAD" && req.get_header_value("X-Brevduva") != "1") {
+            sendError(res, 403, "Förfrågan saknar X-Brevduva-header");
             return httplib::Server::HandlerResponse::Handled;
         }
         return httplib::Server::HandlerResponse::Unhandled;
@@ -643,7 +643,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         std::time_t now = std::time(nullptr);
         std::strftime(date, sizeof(date), "%Y-%m-%d", std::localtime(&now));
         res.set_header("Content-Disposition",
-                       std::string("attachment; filename=\"thunderbirdklon-installningar-") + date + ".zip\"");
+                       std::string("attachment; filename=\"brevduva-installningar-") + date + ".zip\"");
         res.set_header("Cache-Control", "no-store");
         res.set_content(zip, "application/zip");
     }));
@@ -805,4 +805,4 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     }));
 }
 
-}  // namespace tbk
+}  // namespace brevduva

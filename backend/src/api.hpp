@@ -9,8 +9,8 @@ namespace httplib {
 class Server;
 }
 
-namespace tbk {
+namespace brevduva {
 
 void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService& mail, GoogleOAuth& oauth);
 
-}  // namespace tbk
+}  // namespace brevduva

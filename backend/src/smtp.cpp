@@ -8,7 +8,7 @@
 #include <cstring>
 #include <memory>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -111,4 +111,4 @@ void smtpTest(const Account& account) {
     }
 }
 
-}  // namespace tbk
+}  // namespace brevduva

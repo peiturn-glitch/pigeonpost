@@ -10,26 +10,26 @@
 ## Köra testet
 
 ```bash
-# Appen och GreenMail måste köra (nätverket heter <projektmapp>_default)
+# Appen och GreenMail måste köra (Docker-nätverket heter brevduva_default)
 docker compose --profile dev up -d --build
 
 # Låtsas-Google, med kort livslängd på access-token så att förnyelsen testas
-docker run -d --name tbk-oauthmock --network thunderbirdklon_default -p 9999:9999 \
+docker run -d --name brevduva-oauthmock --network brevduva_default -p 9999:9999 \
   -e ACCESS_TTL=66 -v "$PWD/tests/oauth-mock:/m" node:22-alpine node /m/mock.mjs
 
 # En separat testinstans som pekar på låtsas-Google
-docker run -d --name tbk-idtest --network thunderbirdklon_default -p 8081:8080 \
+docker run -d --name brevduva-idtest --network brevduva_default -p 8081:8080 \
   -e ADMIN_USERNAME=tester -e ADMIN_PASSWORD=testerpass1 \
   -e GOOGLE_CLIENT_ID=test-client -e GOOGLE_CLIENT_SECRET=test-secret -e PUBLIC_URL=http://localhost:8081 \
   -e GOOGLE_AUTH_URL=http://localhost:9999/auth \
-  -e GOOGLE_TOKEN_URL=http://tbk-oauthmock:9999/token \
-  -e GOOGLE_REVOKE_URL=http://tbk-oauthmock:9999/revoke \
-  thunderbirdklon:latest
+  -e GOOGLE_TOKEN_URL=http://brevduva-oauthmock:9999/token \
+  -e GOOGLE_REVOKE_URL=http://brevduva-oauthmock:9999/revoke \
+  brevduva:latest
 
 node tests/oauth-mock/apitest.mjs
 
 # Städa
-docker rm -f tbk-idtest tbk-oauthmock
+docker rm -f brevduva-idtest brevduva-oauthmock
 ```
 
 `GOOGLE_AUTH_URL` pekar på `localhost`, eftersom den adressen öppnas av webbläsaren (här av testskriptet). Token- och revoke-adresserna anropas av backenden inifrån Docker-nätverket.

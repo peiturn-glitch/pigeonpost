@@ -18,7 +18,7 @@ find_package(Threads REQUIRED)
 set(HTTPLIB_INCLUDE_DIR "" CACHE PATH "Directory containing httplib.h")
 find_path(HTTPLIB_HEADER_DIR httplib.h HINTS ${HTTPLIB_INCLUDE_DIR} REQUIRED)
 
-add_executable(tbk-server
+add_executable(brevduva-server
   src/main.cpp
   src/api.cpp
   src/auth.cpp
@@ -35,9 +35,9 @@ add_executable(tbk-server
   src/thunderbird_prefs.cpp
 )
 
-target_include_directories(tbk-server PRIVATE ${HTTPLIB_HEADER_DIR})
-target_compile_options(tbk-server PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(tbk-server PRIVATE
+target_include_directories(brevduva-server PRIVATE ${HTTPLIB_HEADER_DIR})
+target_compile_options(brevduva-server PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_link_libraries(brevduva-server PRIVATE
   PkgConfig::GMIME
   OpenSSL::SSL OpenSSL::Crypto
   CURL::libcurl

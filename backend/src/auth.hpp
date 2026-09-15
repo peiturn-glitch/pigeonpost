@@ -8,7 +8,7 @@
 #include <optional>
 #include <string>
 
-namespace tbk {
+namespace brevduva {
 
 // Fleranvändarinloggning. Sessionstoken ligger i en HttpOnly-cookie; databasen lagrar bara dess SHA-256.
 class Auth {
@@ -30,7 +30,7 @@ public:
     static void validateUsername(const std::string& username);
     static void validatePassword(const std::string& password);
 
-    static constexpr const char* kCookieName = "tbk_session";
+    static constexpr const char* kCookieName = "brevduva_session";
     static constexpr int kSessionDays = 14;
 
 private:
@@ -49,4 +49,4 @@ private:
     std::mutex mutex_;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

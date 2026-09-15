@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace tbk {
+namespace brevduva {
 
 // Ogiltig indata från klienten -> HTTP 400.
 struct BadRequest : std::runtime_error {
@@ -40,4 +40,4 @@ struct MailServerError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

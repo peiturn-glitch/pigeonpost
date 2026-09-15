@@ -10,7 +10,7 @@
 #include <cstdio>
 #include <map>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -614,4 +614,4 @@ std::string ImapClient::uidSetFrom(std::vector<std::uint32_t> uids) {
     return out;
 }
 
-}  // namespace tbk
+}  // namespace brevduva

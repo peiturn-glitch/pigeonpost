@@ -7,7 +7,7 @@
 #include <ctime>
 #include <set>
 
-namespace tbk::thunderbird {
+namespace brevduva::thunderbird {
 
 namespace {
 
@@ -423,7 +423,7 @@ public:
         // Thunderbird skriver prefs.js sorterad; gör likadant så att filen känns igen.
         std::sort(lines_.begin(), lines_.end());
         std::string out = "// Mozilla User Preferences\n\n"
-                          "// Exporterad från ThunderbirdKlon. Lösenord ingår inte; Thunderbird frågar efter dem.\n\n";
+                          "// Exporterad från Brevduva. Lösenord ingår inte; Thunderbird frågar efter dem.\n\n";
         for (const auto& line : lines_) out += line + "\n";
         return out;
     }
@@ -707,4 +707,4 @@ std::string makeZip(const std::vector<std::pair<std::string, std::string>>& file
     return out;
 }
 
-}  // namespace tbk::thunderbird
+}  // namespace brevduva::thunderbird

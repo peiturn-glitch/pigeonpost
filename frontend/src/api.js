@@ -20,7 +20,7 @@ function buildUrl(path, query) {
 }
 
 async function request(method, path, { query, body, form } = {}) {
-  const headers = { 'X-TBK': '1' }
+  const headers = { 'X-Brevduva': '1' }
   let payload
   if (form) {
     payload = form

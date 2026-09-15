@@ -11,7 +11,7 @@
 #include <cerrno>
 #include <cstring>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -194,4 +194,4 @@ void Connection::close() {
     pos_ = 0;
 }
 
-}  // namespace tbk
+}  // namespace brevduva

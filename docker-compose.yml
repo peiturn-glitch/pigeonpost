@@ -1,8 +1,11 @@
+# Fast projektnamn, så att nätverk och containrar heter likadant oavsett mappens namn.
+name: brevduva
+
 services:
   app:
     build: .
-    image: thunderbirdklon:latest
-    container_name: thunderbirdklon
+    image: brevduva:latest
+    container_name: brevduva
     ports:
       - "8080:8080"
     environment:
@@ -18,7 +21,7 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     volumes:
-      - tbk-data:/data
+      - brevduva-data:/data
     restart: unless-stopped
 
   # Lokal testmailserver för utveckling: docker compose --profile dev up
@@ -37,4 +40,5 @@ services:
       - "3143:3143"
 
 volumes:
-  tbk-data:
+  brevduva-data:
+    name: brevduva-data

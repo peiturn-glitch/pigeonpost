@@ -17,8 +17,8 @@ import UsersDialog from './UsersDialog.vue'
 const emit = defineEmits(['logout'])
 const store = useMailStore()
 
-const folderWidth = ref(readNumber('tbk.folderWidth', 240))
-const listHeight = ref(readNumber('tbk.listHeight', 320))
+const folderWidth = ref(readNumber('brevduva.folderWidth', 240))
+const listHeight = ref(readNumber('brevduva.listHeight', 320))
 const refreshing = ref(false)
 const menuOpen = ref(false)
 
@@ -55,8 +55,8 @@ function startResize(kind, event) {
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
     document.body.style.userSelect = ''
-    persist('tbk.folderWidth', folderWidth.value)
-    persist('tbk.listHeight', listHeight.value)
+    persist('brevduva.folderWidth', folderWidth.value)
+    persist('brevduva.listHeight', listHeight.value)
   }
   document.body.style.userSelect = 'none'
   window.addEventListener('pointermove', onMove)

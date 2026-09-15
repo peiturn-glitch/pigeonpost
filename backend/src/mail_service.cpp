@@ -8,7 +8,7 @@
 #include <iostream>
 #include <set>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -525,4 +525,4 @@ json MailService::saveDraft(long long accountId, mime::OutgoingMessage message, 
     });
 }
 
-}  // namespace tbk
+}  // namespace brevduva

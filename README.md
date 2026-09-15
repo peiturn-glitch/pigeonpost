@@ -1,4 +1,4 @@
-# ThunderbirdKlon
+# Brevduva
 
 En webbaserad e-postklient i Thunderbirds anda. Backenden är skriven i C++20 och frontenden i Vue 3. Allt körs i en enda Docker-container.
 
@@ -46,6 +46,19 @@ På Windows (PowerShell) sätter du variablerna med `$env:ADMIN_PASSWORD = '...'
 
 `APP_PASSWORD` används inte längre. Vid första start efter uppgraderingen skapar du en administratör, antingen på installationssidan eller med variablerna ovan. E-postkonton som redan finns tillfaller den administratören.
 
+### Uppgradera från ThunderbirdKlon
+
+Projektet hette tidigare ThunderbirdKlon. Datavolymen heter nu `brevduva-data`. Kopiera den gamla volymen en gång innan du startar, så följer användare och konton med:
+
+```bash
+docker rm -f thunderbirdklon thunderbirdklon-mailserver-1
+docker volume create brevduva-data
+docker run --rm -v thunderbirdklon_tbk-data:/from -v brevduva-data:/to alpine cp -a /from/. /to/
+docker compose up -d --build
+```
+
+Vid start byter appen själv namn på databasfilen från `thunderbirdklon.db` till `brevduva.db`. Miljövariablerna `TBK_*` heter nu `BREVDUVA_*`, och alla användare behöver logga in igen en gång.
+
 ### Testa utan riktigt konto
 
 Profilen `dev` startar även en lokal testmailserver (GreenMail) som accepterar alla användarnamn och lösenord:
@@ -65,7 +78,7 @@ Under **Meny → Importera/exportera (Thunderbird)**:
 
 Så översätts inställningarna:
 
-| Thunderbird | ThunderbirdKlon |
+| Thunderbird | Brevduva |
 |-------------|-----------------|
 | `mail.server.*` av typen `imap` (`hostname`/`realhostname`, `port`, `socketType`, `userName`) | E-postkonto (IMAP) |
 | Kontots första identitet (`fullName`, `useremail`, `htmlSigText`) och dess `smtpServer` | Kontots namn, adress, signatur och utgående server |
@@ -114,10 +127,10 @@ Googles regler att känna till:
 | `PUBLIC_URL`     | *(förfrågans Host)* | Adressen som webbläsaren når appen på, t.ex. `https://mail.exempel.se`. Används för Googles callback-adress och bör alltid sättas bakom en omvänd proxy. |
 | `GOOGLE_CLIENT_ID` | *(tom)*     | Klient-ID för Google-inloggning. Utan det och `GOOGLE_CLIENT_SECRET` är Google-inloggning avstängd. |
 | `GOOGLE_CLIENT_SECRET` | *(tom)* | Klienthemligheten för klient-ID:t ovan. |
-| `TBK_PORT`       | `8080`        | Port i containern. |
-| `TBK_DATA_DIR`   | `/data`       | Plats för SQLite-databasen (volym). |
+| `BREVDUVA_PORT`       | `8080`        | Port i containern. |
+| `BREVDUVA_DATA_DIR`   | `/data`       | Plats för SQLite-databasen (volym). |
 
-Konton och inställningar ligger i volymen `tbk-data`. Själva e-posten ligger kvar på e-postservern.
+Konton och inställningar ligger i volymen `brevduva-data`. Själva e-posten ligger kvar på e-postservern.
 
 ### Säkerhet
 
@@ -126,7 +139,7 @@ Konton och inställningar ligger i volymen `tbk-data`. Själva e-posten ligger k
 - Varje användare ser bara sina egna e-postkonton. Andras konton ger 404, även för administratörer.
 - Sessioner sparas i databasen (bara tokenens SHA-256) och gäller i 14 dagar. Den som byter lösenord loggas ut på andra enheter, och en användare vars lösenord återställs av admin loggas ut överallt.
 - Efter 10 misslyckade inloggningar på 15 minuter spärras användarnamnet tillfälligt (30 försök per IP-adress).
-- Inloggningen ger en `HttpOnly`-cookie med `SameSite=Strict`. Alla ändrande API-anrop kräver dessutom headern `X-TBK: 1`, som skydd mot CSRF.
+- Inloggningen ger en `HttpOnly`-cookie med `SameSite=Strict`. Alla ändrande API-anrop kräver dessutom headern `X-Brevduva: 1`, som skydd mot CSRF.
 - Bilagor laddas alltid ned som filer, med undantag för PNG, JPEG, GIF och WebP, så att en bilaga inte kan köra skript i appens ursprung.
 
 ### Kända begränsningar
@@ -146,7 +159,7 @@ Konton och inställningar ligger i volymen `tbk-data`. Själva e-posten ligger k
 Webbläsare (Vue 3 + Pinia)
         │  JSON över HTTP (/api/…)
         ▼
-tbk-server (C++20, cpp-httplib)
+brevduva-server (C++20, cpp-httplib)
   ├─ api.cpp           REST-endpoints, behörighet per användare, CSRF-kontroll
   ├─ mail_service.cpp  En IMAP-anslutning per konto, återanvänds mellan anrop
   ├─ imap.cpp          Egen IMAP4rev1-klient (literaler, pipelining, MOVE/UIDPLUS, mUTF-7)

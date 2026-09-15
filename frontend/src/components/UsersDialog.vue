@@ -74,7 +74,7 @@ function toggleAdmin(user) {
 }
 
 function remove(user) {
-  const question = `Ta bort användaren ${user.username}? Användarens e-postkonton tas bort från ThunderbirdKlon (e-posten på servrarna påverkas inte).`
+  const question = `Ta bort användaren ${user.username}? Användarens e-postkonton tas bort från Brevduva (e-posten på servrarna påverkas inte).`
   if (!window.confirm(question)) return
   run(() => api.deleteUser(user.id), `Användaren ${user.username} togs bort`)
 }

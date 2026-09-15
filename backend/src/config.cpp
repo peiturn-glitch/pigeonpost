@@ -10,7 +10,7 @@
 #include <iostream>
 #include <sstream>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -42,10 +42,10 @@ std::string loadOrCreateSecret(const std::string& dataDir) {
 
 Config Config::fromEnvironment() {
     Config c;
-    c.host = env("TBK_HOST", c.host);
-    c.port = std::stoi(env("TBK_PORT", std::to_string(c.port)));
-    c.dataDir = env("TBK_DATA_DIR", c.dataDir);
-    c.staticDir = env("TBK_STATIC_DIR", c.staticDir);
+    c.host = env("BREVDUVA_HOST", c.host);
+    c.port = std::stoi(env("BREVDUVA_PORT", std::to_string(c.port)));
+    c.dataDir = env("BREVDUVA_DATA_DIR", c.dataDir);
+    c.staticDir = env("BREVDUVA_STATIC_DIR", c.staticDir);
     c.adminUsername = env("ADMIN_USERNAME");
     c.adminPassword = env("ADMIN_PASSWORD");
     c.legacyAppPassword = !env("APP_PASSWORD").empty();
@@ -64,4 +64,4 @@ Config Config::fromEnvironment() {
     return c;
 }
 
-}  // namespace tbk
+}  // namespace brevduva

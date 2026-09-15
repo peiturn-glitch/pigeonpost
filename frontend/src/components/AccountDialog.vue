@@ -144,7 +144,7 @@ async function save(skipTest = false) {
 }
 
 async function remove() {
-  if (!window.confirm(`Ta bort kontot ${form.email} från ThunderbirdKlon? E-posten på servern påverkas inte.`)) return
+  if (!window.confirm(`Ta bort kontot ${form.email} från Brevduva? E-posten på servern påverkas inte.`)) return
   busy.value = true
   try {
     await store.removeAccount(form.id)

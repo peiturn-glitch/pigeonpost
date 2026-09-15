@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace tbk::mime {
+namespace brevduva::mime {
 
 void init();
 
@@ -71,4 +71,4 @@ struct BuiltMessage {
 
 BuiltMessage buildMessage(const OutgoingMessage& msg);
 
-}  // namespace tbk::mime
+}  // namespace brevduva::mime

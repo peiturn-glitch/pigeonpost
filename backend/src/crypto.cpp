@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace tbk::crypto {
+namespace brevduva::crypto {
 
 namespace {
 
@@ -182,4 +182,4 @@ std::string decrypt(const std::string& key32, const std::string& token) {
     return plain;
 }
 
-}  // namespace tbk::crypto
+}  // namespace brevduva::crypto

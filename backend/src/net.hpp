@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <string>
 
-namespace tbk {
+namespace brevduva {
 
 // En TCP-anslutning som kan uppgraderas till TLS. Blockerande I/O med timeout.
 class Connection {
@@ -37,4 +37,4 @@ private:
     std::size_t pos_ = 0;
 };
 
-}  // namespace tbk
+}  // namespace brevduva

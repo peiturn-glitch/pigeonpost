@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace tbk {
+namespace brevduva {
 
 namespace {
 
@@ -153,4 +153,4 @@ std::string mutf7ToUtf8(const std::string& mutf7) {
     return out;
 }
 
-}  // namespace tbk
+}  // namespace brevduva

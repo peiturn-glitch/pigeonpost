@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace tbk::thunderbird {
+namespace brevduva::thunderbird {
 
 using json = nlohmann::json;
 
@@ -38,4 +38,4 @@ std::string exportPrefs(const std::vector<std::pair<Account, std::vector<Identit
 // En zip-fil (lagrad, okomprimerad) med de angivna filerna.
 std::string makeZip(const std::vector<std::pair<std::string, std::string>>& files);
 
-}  // namespace tbk::thunderbird
+}  // namespace brevduva::thunderbird

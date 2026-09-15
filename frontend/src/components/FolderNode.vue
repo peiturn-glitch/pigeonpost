@@ -42,7 +42,7 @@ function openMenu(event) {
 }
 
 function onDragOver(event) {
-  if (!props.node.selectable || !event.dataTransfer.types.includes('application/x-tbk-messages')) return
+  if (!props.node.selectable || !event.dataTransfer.types.includes('application/x-brevduva-messages')) return
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   dropActive.value = true
@@ -50,7 +50,7 @@ function onDragOver(event) {
 
 function onDrop(event) {
   dropActive.value = false
-  const raw = event.dataTransfer.getData('application/x-tbk-messages')
+  const raw = event.dataTransfer.getData('application/x-brevduva-messages')
   if (!raw) return
   event.preventDefault()
   const data = JSON.parse(raw)

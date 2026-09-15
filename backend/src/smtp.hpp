@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace tbk {
+namespace brevduva {
 
 // Skickar ett färdigformaterat RFC 5322-meddelande via SMTP (libcurl).
 void smtpSend(const Account& account, const std::string& from, const std::vector<std::string>& recipients,
@@ -14,4 +14,4 @@ void smtpSend(const Account& account, const std::string& from, const std::vector
 // Ansluter och autentiserar utan att skicka något.
 void smtpTest(const Account& account);
 
-}  // namespace tbk
+}  // namespace brevduva

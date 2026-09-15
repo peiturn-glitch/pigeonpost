@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace tbk {
+namespace brevduva {
 
 struct Config {
     std::string host = "0.0.0.0";
@@ -29,4 +29,4 @@ struct Config {
     static Config fromEnvironment();
 };
 
-}  // namespace tbk
+}  // namespace brevduva

@@ -28,19 +28,19 @@ FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates libssl3t64 libcurl4t64 libsqlite3-0 libgmime-3.0-0t64 \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --uid 10001 --home-dir /data tbk \
-    && mkdir -p /data && chown tbk /data
+    && useradd --system --uid 10001 --home-dir /data brevduva \
+    && mkdir -p /data && chown brevduva /data
 
-COPY --from=backend /src/build/tbk-server /app/tbk-server
+COPY --from=backend /src/build/brevduva-server /app/brevduva-server
 COPY --from=frontend /src/dist /app/public
 
-ENV TBK_HOST=0.0.0.0 \
-    TBK_PORT=8080 \
-    TBK_DATA_DIR=/data \
-    TBK_STATIC_DIR=/app/public
+ENV BREVDUVA_HOST=0.0.0.0 \
+    BREVDUVA_PORT=8080 \
+    BREVDUVA_DATA_DIR=/data \
+    BREVDUVA_STATIC_DIR=/app/public
 
-USER tbk
+USER brevduva
 VOLUME ["/data"]
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s CMD ["/app/tbk-server", "--healthcheck"]
-ENTRYPOINT ["/app/tbk-server"]
+HEALTHCHECK --interval=30s --timeout=5s CMD ["/app/brevduva-server", "--healthcheck"]
+ENTRYPOINT ["/app/brevduva-server"]
