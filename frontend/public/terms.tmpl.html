@@ -1,0 +1,119 @@
+<!doctype html>
+<!-- Mall: {{SERVICE_URL}}, {{OPERATOR_NAME}} och {{OPERATOR_CONTACT_HTML}} fylls i av servern från PUBLIC_URL, OPERATOR_NAME
+     och OPERATOR_CONTACT. Vill du ha en helt egen sida lägger du en privacy.html/terms.html i den statiska katalogen
+     (t.ex. monterad över /app/public/privacy.html i containern); den serveras då i stället för mallen. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Terms of Service – PigeonPost</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕊️</text></svg>" />
+<style>
+  :root { --bg: #f9f9fb; --pane: #ffffff; --border: #d7d7db; --text: #15141a; --muted: #5b5b66; --accent: #0061e0; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1b22; --pane: #232229; --border: #3a3944; --text: #fbfbfe; --muted: #adadb8; --accent: #3b8cff; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding-inline: 16px; }
+  main { max-width: 760px; margin: 40px auto; background: var(--pane); border: 1px solid var(--border); border-radius: 8px; padding: 8px 32px 32px; }
+  h1 { font-size: 1.8rem; margin-bottom: 0; } h2 { font-size: 1.25rem; margin-top: 2rem; } h3 { font-size: 1.05rem; }
+  .meta, nav { color: var(--muted); } a { color: var(--accent); } hr { border: 0; border-top: 1px solid var(--border); margin: 3rem 0 1rem; }
+  @media (max-width: 500px) { main { padding: 4px 18px 24px; margin: 16px auto; } }
+</style>
+</head>
+<body>
+<main>
+<h1>🕊️ PigeonPost – Terms of Service</h1>
+<p class="meta">This instance: <a href="{{SERVICE_URL}}">{{SERVICE_URL}}</a> · Operated by {{OPERATOR_NAME}}</p>
+<nav><a href="#svenska">På svenska</a> · <a href="/privacy.html">Privacy Policy</a></nav>
+
+<p>These terms apply to your use of this PigeonPost instance, run by {{OPERATOR_NAME}}. By using the service you agree to these terms.</p>
+
+<h2>1. The service</h2>
+<p>PigeonPost lets you read, organize and send email from your existing email accounts, for example Gmail, through your browser or the Android app. This instance is available to users who have been given an account by its administrator.</p>
+
+<h2>2. Your account</h2>
+<ul>
+  <li>Keep your password secret. You are responsible for activity that takes place through your account.</li>
+  <li>Only connect email accounts that you own or are authorized to use.</li>
+  <li>The administrator may suspend or delete accounts, for example in case of misuse.</li>
+</ul>
+
+<h2>3. Acceptable use</h2>
+<p>You may not use PigeonPost to:</p>
+<ul>
+  <li>send spam, phishing, malware or other unsolicited or harmful messages;</li>
+  <li>break the law or infringe the rights of others;</li>
+  <li>try to access other users' data, or interfere with or overload the service.</li>
+</ul>
+<p>You must also follow the terms of your email provider, such as the <a href="https://policies.google.com/terms">Google Terms of Service</a> for Gmail.</p>
+
+<h2>4. Google accounts</h2>
+<p>If you connect a Google account, PigeonPost uses the access you grant only to provide the email and backup features you use. How this data is handled is described in the <a href="/privacy.html">Privacy Policy</a>. You can revoke access at any time by removing the account in PigeonPost or at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+
+<h2>5. Your content</h2>
+<p>Your email remains yours and stays on your mail server. PigeonPost keeps a working copy to serve you faster and claims no rights to your content.</p>
+
+<h2>6. Availability and disclaimer</h2>
+<p>The service is provided "as is" and "as available", without warranties of any kind. It may be changed, interrupted or discontinued at any time. Your mail server is where your email is kept; do not rely on PigeonPost's cache or backups as your only copy.</p>
+
+<h2>7. Limitation of liability</h2>
+<p>To the extent permitted by law, the operator is not liable for any indirect or consequential damage, lost data, or lost or delayed email resulting from use of the service.</p>
+
+<h2>8. Termination</h2>
+<p>You can stop using PigeonPost at any time and ask for your account to be deleted. Access may be ended if these terms are broken.</p>
+
+<h2>9. Changes</h2>
+<p>These terms may be updated. The current version is always published on this page. Continued use after a change means you accept the updated terms.</p>
+
+<h2>10. Contact</h2>
+<p>Questions about these terms: {{OPERATOR_CONTACT_HTML}}.</p>
+
+<hr id="svenska" />
+
+<h1 lang="sv">PigeonPost – Användarvillkor</h1>
+<div lang="sv">
+<p class="meta">Den här instansen: <a href="{{SERVICE_URL}}">{{SERVICE_URL}}</a> · Drivs av {{OPERATOR_NAME}}</p>
+
+<p>Dessa villkor gäller när du använder den här PigeonPost-instansen, som drivs av {{OPERATOR_NAME}}. Genom att använda tjänsten godkänner du villkoren.</p>
+
+<h2>1. Tjänsten</h2>
+<p>Med PigeonPost kan du läsa, ordna och skicka e-post från dina befintliga e-postkonton, till exempel Gmail, i webbläsaren eller Android-appen. Instansen är tillgänglig för användare som fått ett konto av dess administratör.</p>
+
+<h2>2. Ditt konto</h2>
+<ul>
+  <li>Håll ditt lösenord hemligt. Du ansvarar för det som sker via ditt konto.</li>
+  <li>Anslut bara e-postkonton som du äger eller har rätt att använda.</li>
+  <li>Administratören kan stänga av eller ta bort konton, till exempel vid missbruk.</li>
+</ul>
+
+<h2>3. Tillåten användning</h2>
+<p>Du får inte använda PigeonPost för att:</p>
+<ul>
+  <li>skicka skräppost, nätfiske, skadlig kod eller andra oönskade eller skadliga meddelanden;</li>
+  <li>bryta mot lagen eller kränka andras rättigheter;</li>
+  <li>försöka komma åt andra användares uppgifter, eller störa eller överbelasta tjänsten.</li>
+</ul>
+<p>Du måste också följa din e-postleverantörs villkor, till exempel <a href="https://policies.google.com/terms">Googles användarvillkor</a> för Gmail.</p>
+
+<h2>4. Google-konton</h2>
+<p>Om du ansluter ett Google-konto använder PigeonPost den åtkomst du ger bara för de e-post- och backupfunktioner du använder. Hur uppgifterna hanteras beskrivs i <a href="/privacy.html">integritetspolicyn</a>. Du kan när som helst återkalla åtkomsten genom att ta bort kontot i PigeonPost eller på <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+
+<h2>5. Ditt innehåll</h2>
+<p>Din e-post är din och ligger kvar på din mejlserver. PigeonPost håller en arbetskopia för att vara snabbare och gör inga anspråk på ditt innehåll.</p>
+
+<h2>6. Tillgänglighet och friskrivning</h2>
+<p>Tjänsten tillhandahålls i befintligt skick och i mån av tillgänglighet, utan garantier av något slag. Den kan ändras, avbrytas eller läggas ned när som helst. Din mejlserver är där din e-post finns; förlita dig inte på PigeonPosts kopia eller backuper som enda exemplar.</p>
+
+<h2>7. Ansvarsbegränsning</h2>
+<p>I den mån lagen tillåter ansvarar den som driver instansen inte för indirekta skador eller följdskador, förlorade uppgifter eller e-post som försvinner eller fördröjs till följd av att tjänsten används.</p>
+
+<h2>8. Uppsägning</h2>
+<p>Du kan sluta använda PigeonPost när som helst och be om att ditt konto raderas. Åtkomsten kan stängas av om villkoren bryts.</p>
+
+<h2>9. Ändringar</h2>
+<p>Villkoren kan uppdateras. Den aktuella versionen finns alltid på den här sidan. Fortsatt användning efter en ändring innebär att du godkänner de uppdaterade villkoren.</p>
+
+<h2>10. Kontakt</h2>
+<p>Frågor om villkoren: {{OPERATOR_CONTACT_HTML}}.</p>
+</div>
+</main>
+</body>
+</html>

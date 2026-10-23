@@ -19,10 +19,13 @@ struct HeaderSummary {
     std::vector<Address> to;
     std::int64_t date = 0;  // Unix-sekunder.
     bool hasAttachments = false;
+    std::string messageId;  // Utan vinkelparenteser. Tom om huvudet saknas eller inte hämtades.
 };
 
 // Tolkar ett block med headerfält (från BODY.PEEK[HEADER.FIELDS ...]).
 HeaderSummary parseHeaders(const std::string& raw, const std::string& internalDate);
+// Tolkar ett datum i e-postformat (Date-huvud eller IMAP INTERNALDATE) till unixtid. 0 om det inte går.
+std::int64_t parseDate(const std::string& text);
 
 struct Attachment {
     int index = 0;
@@ -44,7 +47,9 @@ struct ParsedMessage {
     std::vector<Attachment> attachments;
 };
 
-ParsedMessage parseMessage(const std::string& raw);
+// embedInlineImages = true ersätter cid:-referenser i HTML-delen med data-URI:er. Med false lämnas de orörda
+// (bilderna hämtas då som bilagor), men inlineInHtml sätts ändå för bilder som HTML-delen pekar på.
+ParsedMessage parseMessage(const std::string& raw, bool embedInlineImages = true);
 
 struct OutgoingAttachment {
     std::string filename;
@@ -59,6 +64,9 @@ struct OutgoingMessage {
     std::string to, cc, bcc;  // Kommaseparerade adresslistor.
     std::string subject;
     std::string text;
+    // Valfri HTML-version (innehållet i <body>). Skickas som multipart/alternative tillsammans med text.
+    // Bilder med data-URI (<img src="data:image/png;base64,…">) bäddas in som egna delar med cid-referenser.
+    std::string html;
     std::string inReplyTo;
     std::string references;
     std::vector<OutgoingAttachment> attachments;

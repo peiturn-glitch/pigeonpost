@@ -19,6 +19,8 @@ using json = nlohmann::json;
 constexpr auto kLoginTimeout = std::chrono::minutes(10);
 constexpr auto kTokenMargin = std::chrono::seconds(60);
 const char* kScopes = "https://mail.google.com/ openid email profile";
+// drive.file ger bara åtkomst till filer som appen själv har skapat.
+const char* kDriveScope = "https://www.googleapis.com/auth/drive.file";
 
 std::string base64Url(const std::string& bytes) {
     std::string s = crypto::base64Encode(bytes);
@@ -116,29 +118,36 @@ void GoogleOAuth::purgeExpired() {
 }
 
 std::pair<std::string, std::string> GoogleOAuth::start(long long userId, const std::string& loginHint,
-                                                       const std::string& redirectUri) {
+                                                       const std::string& redirectUri, Purpose purpose) {
     if (!configured()) throw BadRequest("Google-inloggning är inte konfigurerad på servern");
 
     std::string state = crypto::toHex(crypto::randomBytes(24));
     Pending p;
     p.userId = userId;
+    p.purpose = purpose;
+    p.result.purpose = purpose;
     p.verifier = base64Url(crypto::randomBytes(32));
     p.redirectUri = redirectUri;
     p.expires = Clock::now() + kLoginTimeout;
     std::string challenge = base64Url(crypto::sha256(p.verifier));
 
     // access_type=offline och prompt=consent ger en refresh-token även vid ny inloggning.
-    std::string url = authUrl_ + "?" +
-                      formBody({{"client_id", clientId_},
-                                {"redirect_uri", redirectUri},
-                                {"response_type", "code"},
-                                {"scope", kScopes},
-                                {"access_type", "offline"},
-                                {"prompt", "consent"},
-                                {"state", state},
-                                {"code_challenge", challenge},
-                                {"code_challenge_method", "S256"},
-                                {"include_granted_scopes", "true"}});
+    std::map<std::string, std::string> params = {{"client_id", clientId_},
+                                                 {"redirect_uri", redirectUri},
+                                                 {"response_type", "code"},
+                                                 {"scope", kScopes},
+                                                 {"access_type", "offline"},
+                                                 {"prompt", "consent"},
+                                                 {"state", state},
+                                                 {"code_challenge", challenge},
+                                                 {"code_challenge_method", "S256"},
+                                                 {"include_granted_scopes", "true"}};
+    if (purpose == Purpose::Drive) {
+        // En Drive-koppling ska inte ärva e-postbehörigheten från en tidigare inloggning.
+        params["scope"] = std::string(kDriveScope) + " openid email profile";
+        params.erase("include_granted_scopes");
+    }
+    std::string url = authUrl_ + "?" + formBody(params);
     if (!loginHint.empty()) url += "&login_hint=" + urlEncode(loginHint);
 
     std::lock_guard lock(mutex_);
@@ -158,6 +167,7 @@ bool GoogleOAuth::handleCallback(const std::string& state, const std::string& co
     }
 
     Result result;
+    result.purpose = pending.purpose;
     result.done = true;
     try {
         if (!error.empty()) {
@@ -189,8 +199,14 @@ bool GoogleOAuth::handleCallback(const std::string& state, const std::string& co
                         result.name = claims.value("name", "");
                     }
                 }
+                // Google låter användaren avmarkera enskilda behörigheter på samtyckesskärmen.
+                std::string granted = " " + j.value("scope", std::string(kDriveScope)) + " ";
+                bool driveGranted = granted.find(std::string(" ") + kDriveScope + " ") != std::string::npos;
                 if (result.refreshToken.empty()) result.error = "Google skickade ingen refresh-token.";
                 else if (result.email.empty()) result.error = "Google skickade ingen verifierad e-postadress.";
+                else if (pending.purpose == Purpose::Drive && !driveGranted) {
+                    result.error = "PigeonPost fick inte åtkomst till Google Drive. Logga in igen och bocka i rutan för Google Drive.";
+                }
             }
         }
     } catch (const std::exception& e) {
@@ -225,37 +241,63 @@ std::optional<GoogleOAuth::Result> GoogleOAuth::take(const std::string& state, l
 
 std::string GoogleOAuth::accessToken(const Account& account) {
     if (!account.oauthAccessToken.empty()) return account.oauthAccessToken;
+    if (account.oauthRefreshToken.empty()) throw MailServerError("Kontot saknar Google-inloggning. Logga in med Google igen.");
+    try {
+        return cachedAccessToken("account:" + std::to_string(account.id), account.oauthRefreshToken, account.email);
+    } catch (const MailServerError& e) {
+        if (std::string(e.what()) != "invalid_grant") throw;
+        throw MailServerError("Google-inloggningen för " + account.email +
+                              " har upphört eller återkallats. Öppna kontoinställningarna och logga in med Google igen.");
+    }
+}
+
+std::string GoogleOAuth::accessToken(const DriveConnection& connection) {
+    if (connection.refreshToken.empty()) throw MailServerError("Google Drive-kopplingen saknar inloggning. Anslut Google Drive igen.");
+    try {
+        return cachedAccessToken("drive:" + std::to_string(connection.id), connection.refreshToken, connection.email);
+    } catch (const MailServerError& e) {
+        if (std::string(e.what()) != "invalid_grant") throw;
+        throw MailServerError("Google Drive-kopplingen för " + connection.email +
+                              " har upphört eller återkallats. Ta bort kopplingen och anslut Google Drive igen.");
+    }
+}
+
+// Kastar MailServerError("invalid_grant") när Google har återkallat inloggningen, så att anroparen kan
+// formulera ett eget råd.
+std::string GoogleOAuth::cachedAccessToken(const std::string& cacheKey, const std::string& refreshToken,
+                                           const std::string& label) {
     {
         std::lock_guard lock(mutex_);
-        auto it = tokens_.find(account.id);
+        auto it = tokens_.find(cacheKey);
         if (it != tokens_.end() && it->second.expires - kTokenMargin > Clock::now()) return it->second.token;
     }
     if (!configured()) throw MailServerError("Google-inloggning är inte längre konfigurerad på servern");
-    if (account.oauthRefreshToken.empty()) throw MailServerError("Kontot saknar Google-inloggning. Logga in med Google igen.");
 
     auto [status, body] = postForm(tokenUrl_, formBody({{"grant_type", "refresh_token"},
-                                                        {"refresh_token", account.oauthRefreshToken},
+                                                        {"refresh_token", refreshToken},
                                                         {"client_id", clientId_},
                                                         {"client_secret", clientSecret_}}));
     json j = json::parse(body, nullptr, false);
     if (status != 200 || j.is_discarded() || !j.contains("access_token")) {
         std::string reason = j.is_discarded() ? "ogiltigt svar" : describeTokenError(j);
-        if (!j.is_discarded() && j.value("error", "") == "invalid_grant") {
-            throw MailServerError("Google-inloggningen för " + account.email +
-                                  " har upphört eller återkallats. Öppna kontoinställningarna och logga in med Google igen.");
-        }
-        throw MailServerError("Kunde inte förnya Google-inloggningen: " + reason);
+        if (!j.is_discarded() && j.value("error", "") == "invalid_grant") throw MailServerError("invalid_grant");
+        throw MailServerError("Kunde inte förnya Google-inloggningen för " + label + ": " + reason);
     }
 
     CachedToken cached{j.value("access_token", ""), Clock::now() + std::chrono::seconds(j.value("expires_in", 3600))};
     std::lock_guard lock(mutex_);
-    tokens_[account.id] = cached;
+    tokens_[cacheKey] = cached;
     return cached.token;
 }
 
 void GoogleOAuth::forget(long long accountId) {
     std::lock_guard lock(mutex_);
-    tokens_.erase(accountId);
+    tokens_.erase("account:" + std::to_string(accountId));
+}
+
+void GoogleOAuth::forgetDrive(long long connectionId) {
+    std::lock_guard lock(mutex_);
+    tokens_.erase("drive:" + std::to_string(connectionId));
 }
 
 void GoogleOAuth::revoke(const std::string& refreshToken) {

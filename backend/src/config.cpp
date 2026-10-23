@@ -4,6 +4,7 @@
 
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -49,15 +50,34 @@ Config Config::fromEnvironment() {
     c.adminUsername = env("ADMIN_USERNAME");
     c.adminPassword = env("ADMIN_PASSWORD");
     c.legacyAppPassword = !env("APP_PASSWORD").empty();
+    c.dbHost = env("DB_HOST", c.dbHost);
+    c.dbPort = std::stoi(env("DB_PORT", std::to_string(c.dbPort)));
+    c.dbName = env("DB_NAME", c.dbName);
+    c.dbUser = env("DB_USER", c.dbUser);
+    c.dbPassword = env("DB_PASSWORD");
     c.publicUrl = env("PUBLIC_URL");
     while (!c.publicUrl.empty() && c.publicUrl.back() == '/') c.publicUrl.pop_back();
+    c.operatorName = env("OPERATOR_NAME", c.operatorName);
+    c.operatorContact = env("OPERATOR_CONTACT");
     c.googleClientId = env("GOOGLE_CLIENT_ID");
     c.googleClientSecret = env("GOOGLE_CLIENT_SECRET");
     c.googleAuthUrl = env("GOOGLE_AUTH_URL", c.googleAuthUrl);
     c.googleTokenUrl = env("GOOGLE_TOKEN_URL", c.googleTokenUrl);
     c.googleRevokeUrl = env("GOOGLE_REVOKE_URL", c.googleRevokeUrl);
+    c.googleApiUrl = env("GOOGLE_API_URL", c.googleApiUrl);
+    while (!c.googleApiUrl.empty() && c.googleApiUrl.back() == '/') c.googleApiUrl.pop_back();
+    c.aiExtraProviders = env("AI_EXTRA_PROVIDERS");
 
     std::filesystem::create_directories(c.dataDir);
+    c.mailCache = env("MAIL_CACHE", "1") != "0";
+    c.rawCacheDir = env("BREVDUVA_RAW_CACHE_DIR", (std::filesystem::path(c.dataDir) / "cache" / "raw").string());
+    c.rawCacheMb = std::max(0, std::stoi(env("RAW_CACHE_MB", std::to_string(c.rawCacheMb))));
+    c.backupDir = env("BREVDUVA_BACKUP_DIR", (std::filesystem::path(c.dataDir) / "backups").string());
+    std::filesystem::create_directories(c.backupDir);
+    c.fcmServiceAccountFile = env("FCM_SERVICE_ACCOUNT_FILE");
+    c.fcmUrl = env("FCM_URL", c.fcmUrl);
+    c.fcmTokenUrl = env("FCM_TOKEN_URL");
+    c.androidDir = env("BREVDUVA_ANDROID_DIR", (std::filesystem::path(c.dataDir) / "android").string());
     std::string secret = env("SECRET_KEY");
     if (secret.empty()) secret = loadOrCreateSecret(c.dataDir);
     c.encryptionKey = crypto::sha256(secret);

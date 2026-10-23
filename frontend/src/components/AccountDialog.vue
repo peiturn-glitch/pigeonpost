@@ -1,11 +1,15 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { api } from '../api'
+import { useBulkAddresses } from '../bulkAddresses'
 import { isGoogleMailAddress, isGoogleMailHost } from '../oauth'
 import { useMailStore } from '../store'
 import { defaultPorts, mailPresets as presets, presetForEmail } from '../utils'
+import BulkAddresses from './BulkAddresses.vue'
+import BulkStatus from './BulkStatus.vue'
 import GoogleSignIn from './GoogleSignIn.vue'
 import Icon from './Icon.vue'
+import SignatureEditor from './SignatureEditor.vue'
 
 const store = useMailStore()
 const existing = store.accountDialog
@@ -44,6 +48,7 @@ const form = reactive({
   smtpUsername: existing.smtpUsername ?? '',
   tlsVerify: existing.tlsVerify ?? true,
   signature: existing.signature ?? '',
+  signatureHtml: existing.signatureHtml ?? '',
   authType: existing.authType ?? 'password',
 })
 
@@ -98,7 +103,82 @@ function applyPreset(event) {
   event.target.value = ''
 }
 
+// Flera adresser med samma serverinställningar och lösenord, ett konto per adress.
+const {
+  state: bulk,
+  parsed: bulkParsed,
+  pending: bulkPending,
+  failures: bulkFailures,
+  reset: resetBulk,
+  run: runBulk,
+} = useBulkAddresses({
+  existing: () => store.accounts.map((a) => a.email),
+  create: (entry, skipTest) => api.createAccount(bulkBody(entry, skipTest)),
+})
+
+function onBulkToggle() {
+  // Google-inloggning görs per konto, så flera adresser läggs alltid till med lösenord.
+  if (bulk.enabled) form.authType = 'password'
+  resetBulk()
+  testResult.value = null
+}
+
+function guessFromBulk() {
+  const first = bulkParsed.value.addresses[0]
+  if (!first) return
+  if (!usernameTouched.value && bulk.usernameMode === 'same') form.username = first.email
+  if (form.imapHost) return
+  const preset = presetForEmail(first.email)
+  if (preset) Object.assign(form, preset)
+}
+
+function bulkBody(entry, skipTest) {
+  return {
+    name: entry.name || form.name,
+    email: entry.email,
+    username: bulk.usernameMode === 'address' ? entry.email : form.username,
+    password: form.password,
+    imapHost: form.imapHost,
+    imapPort: Number(form.imapPort),
+    imapSecurity: form.imapSecurity,
+    smtpHost: form.smtpHost,
+    smtpPort: Number(form.smtpPort),
+    smtpSecurity: form.smtpSecurity,
+    smtpUsername: form.smtpUsername,
+    tlsVerify: form.tlsVerify,
+    signature: form.signature,
+    signatureHtml: form.signatureHtml,
+    authType: 'password',
+    skipTest: skipTest || !bulk.test,
+  }
+}
+
+async function addAccounts(options) {
+  busy.value = true
+  error.value = ''
+  testResult.value = null
+  let created = []
+  try {
+    created = await runBulk(options)
+  } finally {
+    busy.value = false
+  }
+  if (!created.length) return
+  await store.loadAccounts()
+  await Promise.all(created.map((a) => store.loadFolders(a.id)))
+  store.notify(created.length === 1 ? 'Kontot lades till' : `${created.length} konton lades till`)
+  if (!store.expanded.has(`acc:${created[0].id}`)) store.toggleExpanded(`acc:${created[0].id}`)
+  if (!bulkFailures.value.length) {
+    await store.selectFolder(created[0].id, 'INBOX')
+    store.accountDialog = null
+  }
+}
+
 const canSubmit = computed(() => {
+  if (bulk.enabled) {
+    if (!bulkPending.value.length || !form.imapHost || !form.smtpHost || !form.password) return false
+    return bulk.usernameMode === 'address' || !!form.username
+  }
   if (!form.email || !form.imapHost || !form.smtpHost) return false
   // Google: kräver en ny inloggning, eller att kontot redan är anslutet med Google.
   if (useGoogle.value) return !!oauthState.value || wasGoogle
@@ -120,7 +200,9 @@ async function test() {
   error.value = ''
   testResult.value = null
   try {
-    testResult.value = await api.testAccount(body())
+    // I flerläget testas den första adressen, eftersom alla konton har samma inställningar.
+    const first = bulkParsed.value.addresses[0]
+    testResult.value = await api.testAccount(bulk.enabled ? bulkBody(first, true) : body())
   } catch (e) {
     error.value = e.message
   } finally {
@@ -144,7 +226,7 @@ async function save(skipTest = false) {
 }
 
 async function remove() {
-  if (!window.confirm(`Ta bort kontot ${form.email} från Brevduva? E-posten på servern påverkas inte.`)) return
+  if (!window.confirm(`Ta bort kontot ${form.email} från PigeonPost? E-posten på servern påverkas inte.`)) return
   busy.value = true
   try {
     await store.removeAccount(form.id)
@@ -159,7 +241,7 @@ async function remove() {
 
 <template>
   <div class="modal-backdrop">
-    <form class="modal account" @submit.prevent="save(false)">
+    <form class="modal account" @submit.prevent="bulk.enabled ? addAccounts() : save(false)">
       <div class="modal-header">
         <h2>{{ isNew ? 'Lägg till e-postkonto' : 'Kontoinställningar' }}</h2>
         <button type="button" class="btn ghost" title="Stäng" @click="store.accountDialog = null"><Icon name="close" /></button>
@@ -167,9 +249,56 @@ async function remove() {
 
       <div class="content">
         <section>
+          <label v-if="isNew" class="check bulk-toggle">
+            <input v-model="bulk.enabled" type="checkbox" @change="onBulkToggle" />
+            <span>
+              Flera adresser med samma inställningar
+              <span class="muted">– varje adress blir ett eget konto</span>
+            </span>
+          </label>
+
           <div class="grid">
             <label for="acc-name">Ditt namn</label>
             <input id="acc-name" v-model="form.name" class="input" placeholder="Förnamn Efternamn" />
+
+            <template v-if="bulk.enabled">
+              <label for="acc-emails">E-postadresser</label>
+              <BulkAddresses :state="bulk" :parsed="bulkParsed" input-id="acc-emails" @blur="guessFromBulk">
+                <template #hint>Namnet ovan används för de adresser som saknar eget namn.</template>
+              </BulkAddresses>
+
+              <span class="label">Användarnamn</span>
+              <div class="auth-choice">
+                <label class="radio">
+                  <input v-model="bulk.usernameMode" type="radio" value="address" />
+                  Adressen är användarnamn för varje konto
+                </label>
+                <label class="radio">
+                  <input v-model="bulk.usernameMode" type="radio" value="same" />
+                  Samma användarnamn för alla
+                </label>
+                <input
+                  v-if="bulk.usernameMode === 'same'"
+                  v-model="form.username"
+                  class="input"
+                  placeholder="Användarnamn"
+                  required
+                  @input="usernameTouched = true"
+                />
+              </div>
+
+              <label for="acc-bulkpass">Lösenord</label>
+              <input
+                id="acc-bulkpass"
+                v-model="form.password"
+                class="input"
+                type="password"
+                autocomplete="new-password"
+                required
+              />
+            </template>
+
+            <template v-else>
             <label for="acc-email">E-postadress</label>
             <input id="acc-email" v-model="form.email" class="input" type="email" required @blur="guessFromEmail" />
 
@@ -221,7 +350,20 @@ async function remove() {
                 :required="isNew || wasGoogle"
               />
             </template>
+            </template>
           </div>
+
+          <template v-if="bulk.enabled">
+            <label class="check">
+              <input v-model="bulk.test" type="checkbox" />
+              Testa inloggningen för varje adress (ta bort bocken om servern spärrar många inloggningar i rad)
+            </label>
+            <BulkStatus :entries="bulk.entries" exists-text="Finns redan som konto" />
+            <p class="muted small">
+              Är adresserna alias till samma brevlåda är det oftast bättre att lägga till dem som extra avsändare i ett
+              konto, under <strong>Fler avsändare</strong>.
+            </p>
+          </template>
           <p v-if="!useGoogle" class="hint muted">
             Gmail, iCloud och Yahoo kräver ett app-lösenord när tvåstegsverifiering är aktiverad.
           </p>
@@ -275,7 +417,7 @@ async function remove() {
 
         <section>
           <h3>Signatur</h3>
-          <textarea v-model="form.signature" class="input signature" rows="3" placeholder="Läggs till i nya meddelanden" />
+          <SignatureEditor v-model:text="form.signature" v-model:html="form.signatureHtml" />
         </section>
 
         <section>
@@ -316,13 +458,31 @@ async function remove() {
       <div class="modal-footer">
         <button v-if="!isNew" type="button" class="btn danger" :disabled="busy" @click="remove">Ta bort konto</button>
         <div class="spacer" />
-        <button type="button" class="btn" :disabled="busy || !canSubmit" @click="test">Testa anslutning</button>
-        <button v-if="testResult && (!testResult.imap.ok || !testResult.smtp.ok)" type="button" class="btn" :disabled="busy" @click="save(true)">
-          Spara ändå
+        <button type="button" class="btn" :disabled="busy || !canSubmit" @click="test">
+          {{ bulk.enabled ? 'Testa första adressen' : 'Testa anslutning' }}
         </button>
-        <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
-          {{ busy ? 'Kontrollerar…' : isNew ? 'Lägg till' : 'Spara' }}
-        </button>
+        <template v-if="bulk.enabled">
+          <button
+            v-if="bulkFailures.some((e) => e.canSkipTest)"
+            type="button"
+            class="btn"
+            :disabled="busy"
+            @click="addAccounts({ skipTest: true, onlyFailed: true })"
+          >
+            Lägg till de misslyckade ändå
+          </button>
+          <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
+            {{ busy ? 'Lägger till…' : `Lägg till ${bulkPending.length} ${bulkPending.length === 1 ? 'konto' : 'konton'}` }}
+          </button>
+        </template>
+        <template v-else>
+          <button v-if="testResult && (!testResult.imap.ok || !testResult.smtp.ok)" type="button" class="btn" :disabled="busy" @click="save(true)">
+            Spara ändå
+          </button>
+          <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
+            {{ busy ? 'Kontrollerar…' : isNew ? 'Lägg till' : 'Spara' }}
+          </button>
+        </template>
       </div>
     </form>
   </div>
@@ -430,33 +590,9 @@ h3 {
   resize: vertical;
 }
 
-.small {
-  font-size: 12px;
-  margin: 0;
-}
-
-.identities {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.identities li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-}
-
-.identities li:first-child {
-  border-top: 0;
-}
-
-.identity-text {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
+.bulk-toggle {
+  margin: 0 0 10px;
+  font-size: 13px;
 }
 
 .test p {

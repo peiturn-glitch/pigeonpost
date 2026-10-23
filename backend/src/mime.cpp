@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <memory>
+#include <set>
 
 namespace brevduva::mime {
 
@@ -196,6 +197,98 @@ GMimeObject* textPart(const std::string& text) {
     return GMIME_OBJECT(part);
 }
 
+struct InlineImage {
+    std::string subtype;  // png, jpeg, gif eller webp
+    std::string data;
+    std::string contentId;
+};
+
+// Byter ut bilder med data-URI mot cid-referenser och returnerar bilderna. Många e-postprogram, bland annat
+// Gmail, visar inte data-URI:er, men alla visar inbäddade delar i multipart/related.
+std::vector<InlineImage> extractInlineImages(std::string& html, const std::string& domain) {
+    static const std::set<std::string> allowed = {"png", "jpeg", "gif", "webp"};
+    std::vector<InlineImage> images;
+    const std::string marker = "src=\"data:image/";
+    std::size_t pos = 0;
+    while ((pos = html.find(marker, pos)) != std::string::npos) {
+        std::size_t valueStart = pos + 5;  // Efter src="
+        std::size_t valueEnd = html.find('"', valueStart);
+        if (valueEnd == std::string::npos) break;
+        std::string uri = html.substr(valueStart, valueEnd - valueStart);
+        std::size_t semi = uri.find(';');
+        std::size_t comma = uri.find(',');
+        std::string subtype = semi == std::string::npos ? "" : lower(uri.substr(11, semi - 11));
+        if (subtype == "jpg") subtype = "jpeg";
+        if (comma == std::string::npos || semi > comma || uri.compare(semi, comma - semi, ";base64") != 0 ||
+            !allowed.count(subtype)) {
+            pos = valueEnd;
+            continue;
+        }
+        InlineImage image;
+        image.subtype = subtype;
+        image.data = crypto::base64Decode(uri.substr(comma + 1));
+        image.contentId = "bild" + std::to_string(images.size() + 1) + "." + crypto::toHex(crypto::randomBytes(6)) + "@" + domain;
+        std::string ref = "cid:" + image.contentId;
+        html.replace(valueStart, valueEnd - valueStart, ref);
+        pos = valueStart + ref.size();
+        images.push_back(std::move(image));
+    }
+    return images;
+}
+
+GMimeObject* htmlPart(const std::string& body) {
+    std::string html = "<!DOCTYPE html>\n<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">"
+                       "</head><body>\n" + body + "\n</body></html>\n";
+    GMimeTextPart* part = g_mime_text_part_new_with_subtype("html");
+    g_mime_text_part_set_text(part, html.c_str());
+    g_mime_part_set_content_encoding(
+        GMIME_PART(part), g_mime_part_get_best_content_encoding(GMIME_PART(part), GMIME_ENCODING_CONSTRAINT_7BIT));
+    return GMIME_OBJECT(part);
+}
+
+GMimeObject* inlineImagePart(const InlineImage& image, std::size_t number) {
+    GMimePart* part = g_mime_part_new_with_type("image", image.subtype.c_str());
+    GPtr<GMimeStream> stream(g_mime_stream_mem_new_with_buffer(image.data.data(), image.data.size()));
+    GPtr<GMimeDataWrapper> wrapper(g_mime_data_wrapper_new_with_stream(stream.get(), GMIME_CONTENT_ENCODING_DEFAULT));
+    g_mime_part_set_content(part, wrapper.get());
+    g_mime_object_set_disposition(GMIME_OBJECT(part), GMIME_DISPOSITION_INLINE);
+    std::string filename = "bild" + std::to_string(number) + "." + (image.subtype == "jpeg" ? "jpg" : image.subtype);
+    g_mime_part_set_filename(part, filename.c_str());
+    g_mime_object_set_content_id(GMIME_OBJECT(part), image.contentId.c_str());
+    g_mime_part_set_content_encoding(part, GMIME_CONTENT_ENCODING_BASE64);
+    return GMIME_OBJECT(part);
+}
+
+// Meddelandets innehåll: ren text, eller multipart/alternative med text och HTML (med inbäddade bilder).
+GMimeObject* bodyPart(const OutgoingMessage& in, const std::string& domain) {
+    if (in.html.empty()) return textPart(in.text);
+
+    std::string html = in.html;
+    auto images = extractInlineImages(html, domain);
+
+    GMimeMultipart* alternative = g_mime_multipart_new_with_subtype("alternative");
+    GMimeObject* text = textPart(in.text);
+    g_mime_multipart_add(alternative, text);
+    g_object_unref(text);
+
+    GMimeObject* rich = htmlPart(html);
+    if (!images.empty()) {
+        GMimeMultipart* related = g_mime_multipart_new_with_subtype("related");
+        g_mime_object_set_content_type_parameter(GMIME_OBJECT(related), "type", "text/html");
+        g_mime_multipart_add(related, rich);
+        g_object_unref(rich);
+        for (std::size_t i = 0; i < images.size(); ++i) {
+            GMimeObject* part = inlineImagePart(images[i], i + 1);
+            g_mime_multipart_add(related, part);
+            g_object_unref(part);
+        }
+        rich = GMIME_OBJECT(related);
+    }
+    g_mime_multipart_add(alternative, rich);
+    g_object_unref(rich);
+    return GMIME_OBJECT(alternative);
+}
+
 GMimeObject* attachmentPart(const OutgoingAttachment& att) {
     std::string type = att.contentType.empty() ? "application/octet-stream" : att.contentType;
     std::size_t slash = type.find('/');
@@ -234,10 +327,20 @@ HeaderSummary parseHeaders(const std::string& raw, const std::string& internalDa
     collectAddresses(g_mime_message_get_addresses(msg.get(), GMIME_ADDRESS_TYPE_TO), h.to);
     h.date = messageDate(msg.get(), internalDate);
     h.hasAttachments = lower(raw).find("multipart/mixed") != std::string::npos;
+    h.messageId = safe(g_mime_message_get_message_id(msg.get()));
     return h;
 }
 
-ParsedMessage parseMessage(const std::string& raw) {
+std::int64_t parseDate(const std::string& text) {
+    if (text.empty()) return 0;
+    GDateTime* dt = g_mime_utils_header_decode_date(text.c_str());
+    if (!dt) return 0;
+    std::int64_t t = g_date_time_to_unix(dt);
+    g_date_time_unref(dt);
+    return t;
+}
+
+ParsedMessage parseMessage(const std::string& raw, bool embedInlineImages) {
     ParsedMessage out;
     auto msg = parse(raw);
     if (!msg) throw MailServerError("Meddelandet kunde inte tolkas");
@@ -262,6 +365,10 @@ ParsedMessage parseMessage(const std::string& raw) {
             }
             std::string ref = "cid:" + a.contentId;
             if (lowerHtml.find(lower(ref)) == std::string::npos) continue;
+            if (!embedInlineImages) {
+                a.inlineInHtml = true;
+                continue;
+            }
             std::string uri = "data:" + a.contentType + ";base64," + crypto::base64Encode(a.data);
             replaceAll(out.html, ref, uri);
             a.inlineInHtml = true;
@@ -300,9 +407,9 @@ BuiltMessage buildMessage(const OutgoingMessage& in) {
     if (!in.references.empty()) {
         g_mime_object_set_header(GMIME_OBJECT(msg.get()), "References", in.references.c_str(), nullptr);
     }
-    g_mime_object_set_header(GMIME_OBJECT(msg.get()), "User-Agent", "Brevduva/0.1", nullptr);
+    g_mime_object_set_header(GMIME_OBJECT(msg.get()), "User-Agent", "PigeonPost/0.1", nullptr);
 
-    GMimeObject* text = textPart(in.text);
+    GMimeObject* text = bodyPart(in, domain);
     if (in.attachments.empty()) {
         g_mime_message_set_mime_part(msg.get(), text);
         g_object_unref(text);

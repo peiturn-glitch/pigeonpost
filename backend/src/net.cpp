@@ -2,8 +2,10 @@
 
 #include "errors.hpp"
 
+#include <fcntl.h>
 #include <netdb.h>
 #include <openssl/err.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -29,7 +31,7 @@ std::string opensslError() {
 
 Connection::~Connection() { close(); }
 
-void Connection::connect(const std::string& host, int port, int timeoutSeconds) {
+void Connection::connect(const std::string& host, int port, int timeoutSeconds, int connectTimeoutSeconds) {
     close();
 
     addrinfo hints{};
@@ -44,26 +46,60 @@ void Connection::connect(const std::string& host, int port, int timeoutSeconds) 
 
     std::string lastError = "ingen adress";
     for (addrinfo* ai = result; ai != nullptr; ai = ai->ai_next) {
-        int fd = ::socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        // Icke-blockerande connect med poll, eftersom SO_SNDTIMEO inte gäller för connect():
+        // en server som inte svarar skulle annars hålla anropet tills kernelns SYN-försök tar slut
+        // (drygt två minuter).
+        int fd = ::socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol);
         if (fd < 0) continue;
 
-        timeval tv{};
-        tv.tv_sec = timeoutSeconds;
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-        if (::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
-            fd_ = fd;
-            break;
+        bool connected = ::connect(fd, ai->ai_addr, ai->ai_addrlen) == 0;
+        if (!connected && errno == EINPROGRESS) {
+            pollfd pfd{};
+            pfd.fd = fd;
+            pfd.events = POLLOUT;
+            int ready = ::poll(&pfd, 1, connectTimeoutSeconds * 1000);
+            if (ready == 0) {
+                lastError = "servern svarade inte inom " + std::to_string(connectTimeoutSeconds) + " s";
+            } else if (ready < 0) {
+                lastError = std::strerror(errno);
+            } else {
+                int err = 0;
+                socklen_t len = sizeof(err);
+                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) != 0) err = errno;
+                if (err == 0) {
+                    connected = true;
+                } else {
+                    lastError = std::strerror(err);
+                }
+            }
+        } else if (!connected) {
+            lastError = std::strerror(errno);
         }
-        lastError = std::strerror(errno);
-        ::close(fd);
+        if (!connected) {
+            ::close(fd);
+            continue;
+        }
+
+        // Tillbaka till blockerande läge; därefter gäller tidsgränsen per läsning och skrivning.
+        int flags = fcntl(fd, F_GETFL, 0);
+        if (flags >= 0) fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
+        fd_ = fd;
+        setTimeout(timeoutSeconds);
+        break;
     }
     freeaddrinfo(result);
 
     if (fd_ < 0) {
         throw NetError("Kunde inte ansluta till " + host + ":" + portStr + ": " + lastError);
     }
+}
+
+void Connection::setTimeout(int seconds) {
+    if (fd_ < 0) return;
+    timeval tv{};
+    tv.tv_sec = seconds;
+    setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 }
 
 void Connection::startTls(const std::string& host, bool verify) {

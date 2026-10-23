@@ -1,13 +1,18 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
 import { useMailStore } from '../store'
 import AccountDialog from './AccountDialog.vue'
+import AiSortDialog from './AiSortDialog.vue'
+import SearchDialog from './SearchDialog.vue'
+import BackupDialog from './BackupDialog.vue'
 import ComposeDialog from './ComposeDialog.vue'
 import ContextMenu from './ContextMenu.vue'
+import FolderMoveDialog from './FolderMoveDialog.vue'
 import FolderPane from './FolderPane.vue'
 import IdentityDialog from './IdentityDialog.vue'
 import Icon from './Icon.vue'
+import LayoutDialog from './LayoutDialog.vue'
 import MessageList from './MessageList.vue'
 import MessageView from './MessageView.vue'
 import PasswordDialog from './PasswordDialog.vue'
@@ -17,46 +22,42 @@ import UsersDialog from './UsersDialog.vue'
 const emit = defineEmits(['logout'])
 const store = useMailStore()
 
-const folderWidth = ref(readNumber('brevduva.folderWidth', 240))
-const listHeight = ref(readNumber('brevduva.listHeight', 320))
 const refreshing = ref(false)
 const menuOpen = ref(false)
+const layout = store.layout
 
-function readNumber(key, fallback) {
-  try {
-    const v = Number(localStorage.getItem(key))
-    return Number.isFinite(v) && v > 0 ? v : fallback
-  } catch {
-    return fallback
-  }
-}
+// Läsrutan bredvid listan (i stället för under eller ovanför).
+const sideBySide = computed(() => layout.preview === 'left' || layout.preview === 'right')
 
-function persist(key, value) {
-  try {
-    localStorage.setItem(key, String(Math.round(value)))
-  } catch {
-    // Ignoreras; storleken gäller bara denna flik.
-  }
-}
+const listStyle = computed(() => {
+  if (layout.preview === 'hidden') return {}
+  return sideBySide.value ? { width: layout.listWidth + 'px' } : { height: layout.listHeight + 'px' }
+})
 
 function startResize(kind, event) {
   const startX = event.clientX
   const startY = event.clientY
-  const startWidth = folderWidth.value
-  const startHeight = listHeight.value
+  const start = { ...layout }
+  // Panelerna kan ligga i omvänd ordning; då växer de åt andra hållet.
+  const folderSign = layout.folders === 'right' ? -1 : 1
+  const listSign = layout.preview === 'top' || layout.preview === 'left' ? -1 : 1
   const onMove = (e) => {
+    const dx = e.clientX - startX
+    const dy = e.clientY - startY
     if (kind === 'folders') {
-      folderWidth.value = Math.min(500, Math.max(160, startWidth + e.clientX - startX))
+      layout.folderWidth = Math.round(Math.min(500, Math.max(160, start.folderWidth + folderSign * dx)))
+    } else if (sideBySide.value) {
+      const folders = layout.folders === 'hidden' ? 0 : layout.folderWidth
+      const max = Math.max(240, window.innerWidth - folders - 240)
+      layout.listWidth = Math.round(Math.min(max, Math.max(240, start.listWidth + listSign * dx)))
     } else {
-      listHeight.value = Math.min(window.innerHeight - 200, Math.max(100, startHeight + e.clientY - startY))
+      layout.listHeight = Math.round(Math.min(window.innerHeight - 200, Math.max(100, start.listHeight + listSign * dy)))
     }
   }
   const onUp = () => {
     window.removeEventListener('pointermove', onMove)
     window.removeEventListener('pointerup', onUp)
     document.body.style.userSelect = ''
-    persist('brevduva.folderWidth', folderWidth.value)
-    persist('brevduva.listHeight', listHeight.value)
   }
   document.body.style.userSelect = 'none'
   window.addEventListener('pointermove', onMove)
@@ -88,7 +89,31 @@ function isTyping(event) {
 }
 
 function onKeydown(event) {
-  if (store.compose || store.accountDialog || store.identityDialog || store.usersDialog || store.passwordDialog || store.thunderbirdDialog) return
+  if (
+    store.compose ||
+    store.accountDialog ||
+    store.identityDialog ||
+    store.usersDialog ||
+    store.passwordDialog ||
+    store.thunderbirdDialog ||
+    store.layoutDialog ||
+    store.backupDialog ||
+    store.aiDialog ||
+    store.searchDialog ||
+    store.folderMoveDialog
+  ) {
+    return
+  }
+  if (event.key === 'F8' || event.key === 'F9') {
+    // Som i Thunderbird: F8 visar eller döljer läsrutan, F9 mappfältet.
+    event.preventDefault()
+    togglePane(event.key === 'F8' ? 'preview' : 'folders')
+    return
+  }
+  if (event.key === 'Escape' && store.readerOpen) {
+    store.readerOpen = false
+    return
+  }
   const ctrl = event.ctrlKey || event.metaKey
   if (ctrl && event.key.toLowerCase() === 'n') {
     event.preventDefault()
@@ -120,13 +145,38 @@ function onKeydown(event) {
     store.markJunk()
   } else if (event.key === 'a' && hasSelection.value) {
     store.archive()
+  } else if (event.key === 'Enter' && store.openMessage && layout.preview === 'hidden') {
+    store.readerOpen = true
   } else if (event.key === 'F5') {
     event.preventDefault()
     refresh()
   }
 }
 
+// Senast använda placering, så att F8/F9 återställer panelen där den var.
+const lastPosition = {
+  folders: layout.folders === 'hidden' ? 'left' : layout.folders,
+  preview: layout.preview === 'hidden' ? 'bottom' : layout.preview,
+}
+
+function togglePane(pane) {
+  if (layout[pane] === 'hidden') {
+    layout[pane] = lastPosition[pane]
+  } else {
+    lastPosition[pane] = layout[pane]
+    layout[pane] = 'hidden'
+  }
+}
+
+watch(
+  () => layout.preview,
+  (value) => {
+    if (value !== 'hidden') store.readerOpen = false
+  },
+)
+
 let pollTimer = null
+let statusTimer = null
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
@@ -137,16 +187,23 @@ onMounted(async () => {
     store.notify(e.message, 'error')
   }
   // Hämta nya meddelanden regelbundet, som Thunderbird gör.
+  // Under den första synken av ett konto uppdateras förloppet oftare.
+  statusTimer = setInterval(() => {
+    if (document.hidden) return
+    if (Object.values(store.cacheStatus).some((s) => !s.complete || s.state !== 'idle')) store.loadCacheStatus()
+  }, 10000)
   pollTimer = setInterval(() => {
     if (document.hidden) return
+    store.loadCacheStatus()
     store.accounts.forEach((a) => store.loadFolders(a.id))
-    if (!store.filter.q && store.messages.length <= 100) store.loadMessages({ keepSelection: true })
-  }, 60000)
+    if (!store.filter.q && (store.current.view || store.messages.length <= 100)) store.loadMessages({ keepSelection: true })
+  }, 30000) // Läsningen går mot mejlcachen och är billig, så ny post kan visas oftare än förr.
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   clearInterval(pollTimer)
+  clearInterval(statusTimer)
 })
 </script>
 
@@ -182,6 +239,9 @@ onBeforeUnmount(() => {
 
       <div class="spacer" />
 
+      <button class="btn ghost" title="Layout: placera paneler (F8 läsruta, F9 mappar)" @click="store.layoutDialog = true">
+        <Icon name="layout" />
+      </button>
       <div class="menu-wrap" @click.stop>
         <button class="btn ghost" title="Meny" @click="menuOpen = !menuOpen"><Icon name="settings" /></button>
         <div v-if="menuOpen" class="menu">
@@ -203,6 +263,18 @@ onBeforeUnmount(() => {
           <button @click="store.thunderbirdDialog = true; menuOpen = false">
             <Icon name="download" /> Importera/exportera (Thunderbird)
           </button>
+          <button @click="store.backupDialog = true; menuOpen = false">
+            <Icon name="backup" /> Backup av e-postkonton
+          </button>
+          <button @click="store.searchDialog = true; menuOpen = false">
+            <Icon name="search" /> Sök i alla mappar
+          </button>
+          <button @click="store.aiDialog = true; menuOpen = false">
+            <Icon name="sparkles" /> Sortera med AI
+          </button>
+          <button @click="store.layoutDialog = true; menuOpen = false">
+            <Icon name="layout" /> Layout
+          </button>
           <hr />
           <button v-if="store.user?.isAdmin" @click="store.usersDialog = true; menuOpen = false">
             <Icon name="users" /> Hantera användare
@@ -213,20 +285,40 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div class="main">
-      <aside class="folders" :style="{ width: folderWidth + 'px' }">
-        <FolderPane />
-      </aside>
-      <div class="splitter vertical" @pointerdown.prevent="startResize('folders', $event)" />
-      <section class="content">
-        <div class="list" :style="{ height: listHeight + 'px' }">
+    <div class="main" :class="{ 'folders-right': layout.folders === 'right' }">
+      <template v-if="layout.folders !== 'hidden'">
+        <aside class="folders" :style="{ width: layout.folderWidth + 'px' }">
+          <FolderPane />
+        </aside>
+        <div class="splitter vertical" @pointerdown.prevent="startResize('folders', $event)" />
+      </template>
+      <section class="content" :class="`preview-${layout.preview}`">
+        <div class="list" :style="listStyle">
           <MessageList />
         </div>
-        <div class="splitter horizontal" @pointerdown.prevent="startResize('list', $event)" />
-        <div class="preview">
+        <template v-if="layout.preview !== 'hidden'">
+          <div
+            class="splitter"
+            :class="sideBySide ? 'vertical' : 'horizontal'"
+            @pointerdown.prevent="startResize('list', $event)"
+          />
+          <div class="preview">
+            <MessageView />
+          </div>
+        </template>
+      </section>
+    </div>
+
+    <div v-if="store.readerOpen && layout.preview === 'hidden'" class="modal-backdrop" @click.self="store.readerOpen = false">
+      <div class="modal reader">
+        <div class="modal-header">
+          <h2>{{ store.openMessage?.subject || 'Meddelande' }}</h2>
+          <button class="btn ghost" title="Stäng (Esc)" @click="store.readerOpen = false"><Icon name="close" /></button>
+        </div>
+        <div class="reader-body">
           <MessageView />
         </div>
-      </section>
+      </div>
     </div>
 
     <ComposeDialog v-if="store.compose" :key="store.compose.key" />
@@ -235,6 +327,11 @@ onBeforeUnmount(() => {
     <UsersDialog v-if="store.usersDialog" />
     <ThunderbirdDialog v-if="store.thunderbirdDialog" />
     <PasswordDialog v-if="store.passwordDialog" />
+    <LayoutDialog v-if="store.layoutDialog" />
+    <BackupDialog v-if="store.backupDialog" />
+    <AiSortDialog v-if="store.aiDialog" />
+    <SearchDialog v-if="store.searchDialog" />
+    <FolderMoveDialog v-if="store.folderMoveDialog" />
     <ContextMenu v-if="store.contextMenu" />
 
     <div class="toasts">
@@ -339,6 +436,10 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
+.main.folders-right {
+  flex-direction: row-reverse;
+}
+
 .folders {
   background: var(--pane-alt);
   overflow: auto;
@@ -350,20 +451,64 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+}
+
+.content.preview-top {
+  flex-direction: column-reverse;
+}
+
+.content.preview-right {
+  flex-direction: row;
+}
+
+.content.preview-left {
+  flex-direction: row-reverse;
 }
 
 .list {
   flex-shrink: 0;
   min-height: 100px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.content.preview-right .list,
+.content.preview-left .list {
+  min-width: 240px;
+}
+
+.content.preview-hidden .list {
+  flex: 1;
 }
 
 .preview {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.reader {
+  max-width: 960px;
+  height: calc(100vh - 32px);
+}
+
+.reader .modal-header h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
 }
 
 .splitter {

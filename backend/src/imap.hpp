@@ -62,6 +62,13 @@ struct FolderInfo {
     std::set<std::string> attributes;  // Gemener, t.ex. "\\noselect", "\\sent"
     std::uint32_t total = 0;
     std::uint32_t unread = 0;
+    std::uint32_t uidValidity = 0;
+    std::uint32_t uidNext = 0;
+};
+
+struct MailboxStatus {
+    std::uint32_t uidValidity = 0;
+    std::uint32_t uidNext = 0;
 };
 
 struct FetchedMessage {
@@ -82,6 +89,8 @@ public:
     void loginXOAuth2(const std::string& user, const std::string& accessToken);
     void logout();
     bool connected() const { return conn_.isOpen(); }
+    // Tidsgräns i sekunder för varje läsning och skrivning mot servern (30 s efter connect).
+    void setTimeout(int seconds) { conn_.setTimeout(seconds); }
     bool hasCapability(const std::string& cap) const;
 
     ImapResponse exec(const ImapCommand& cmd);
@@ -90,15 +99,22 @@ public:
     std::vector<FolderInfo> listFolders(bool withStatus = true);
     // Väljer mappen om den inte redan är vald. Returnerar antal meddelanden.
     std::uint32_t select(const std::string& folder);
+    // Som select, men skrivskyddat (EXAMINE), t.ex. vid backup.
+    std::uint32_t examine(const std::string& folder);
+    // UIDVALIDITY och UIDNEXT utan att välja mappen, för att billigt se om något nytt har kommit.
+    MailboxStatus status(const std::string& folder);
     void noop() { execOk(ImapCommand("NOOP")); }
 
     std::vector<std::uint32_t> uidSearch(const ImapCommand& criteria, bool utf8);
+    // Som uidSearch, men servern sorterar träffarna (RFC 5256; kräver SORT i CAPABILITY). sortKeys t.ex. "REVERSE DATE".
+    std::vector<std::uint32_t> uidSort(const std::string& sortKeys, const ImapCommand& criteria, bool utf8);
     std::vector<FetchedMessage> uidFetch(const std::string& uidSet, const std::string& items);
     void uidStore(const std::string& uidSet, const std::string& op, const std::string& flags);
     void uidMove(const std::string& uidSet, const std::string& target);
     void expungeUids(const std::string& uidSet);
+    // internalDate har formatet "17-Jul-1996 02:44:25 -0700"; tomt låter servern sätta aktuell tid.
     std::optional<std::uint32_t> append(const std::string& folder, const std::string& flags,
-                                        const std::string& message);
+                                        const std::string& message, const std::string& internalDate = {});
     void createFolder(const std::string& folder);
     void deleteFolder(const std::string& folder);
     void renameFolder(const std::string& from, const std::string& to);
@@ -106,6 +122,7 @@ public:
     static std::string uidSetFrom(std::vector<std::uint32_t> uids);
 
 private:
+    std::uint32_t open(const char* command, const std::string& folder);
     ImapResponse authenticate(const std::string& mechanism, const std::string& initialResponse);
     std::string readUnit();
     void readGreeting();

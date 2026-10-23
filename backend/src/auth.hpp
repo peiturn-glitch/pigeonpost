@@ -24,6 +24,8 @@ public:
 
     std::string createSession(long long userId);
     std::optional<User> userForToken(const std::string& token);
+    // När sessionen går ut (unixtid), eller 0 om den inte finns.
+    std::int64_t sessionExpiresAt(const std::string& token);
     void destroySession(const std::string& token);
     void destroyOtherSessions(long long userId, const std::string& keepToken);
 

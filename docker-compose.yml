@@ -1,31 +1,75 @@
-# Fast projektnamn, så att nätverk och containrar heter likadant oavsett mappens namn.
-name: brevduva
+# PigeonPost with the published image. Settings come from .env (see .env.example).
+#   docker compose pull && docker compose up -d
+# To build from source instead:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+name: pigeonpost
 
 services:
   app:
-    build: .
-    image: brevduva:latest
-    container_name: brevduva
+    image: peiturn555/pigeonpost:${PIGEONPOST_VERSION:-latest}
+    container_name: pigeonpost
     ports:
-      - "8080:8080"
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      # Skapar första administratören vid start om inga användare finns. Utan dem visas i stället
-      # en installationssida där den som först öppnar appen blir administratör.
+      # Creates the first administrator at start if there are no users. Without them a setup page is shown
+      # instead, and whoever opens the app first becomes administrator.
       ADMIN_USERNAME: ${ADMIN_USERNAME:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      # Nyckel som krypterar sparade kontolösenord. Genereras i /data/secret.key om den saknas.
+      # Key that encrypts stored mail passwords and tokens. Generated into /data/secret.key if empty.
       SECRET_KEY: ${SECRET_KEY:-}
-      # Adressen som webbläsaren når appen på. Används som bas för Googles callback-adress.
+      # The MariaDB service below.
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: pigeonpost
+      DB_USER: pigeonpost
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD, e.g. in .env}
+      # The address the browser reaches the app at. Base for Google's callback URL.
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
-      # Google-inloggning för Gmail (OAuth-klient av typen "Webbapplikation"), se README.
+      # Shown on /privacy.html and /terms.html.
+      OPERATOR_NAME: ${OPERATOR_NAME:-the operator of this service}
+      OPERATOR_CONTACT: ${OPERATOR_CONTACT:-}
+      # Google sign-in for Gmail (OAuth client of type "Web application"), see README.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Extra OpenAI-compatible AI services for sorting, e.g. "Ollama=http://ollama:11434/v1".
+      AI_EXTRA_PROVIDERS: ${AI_EXTRA_PROVIDERS:-}
+      # Mail cache in the database (0 turns it off) and the size limit in MB for recently opened messages on disk.
+      MAIL_CACHE: ${MAIL_CACHE:-1}
+      RAW_CACHE_MB: ${RAW_CACHE_MB:-1024}
+      # Push notifications for the Android app: path to the Firebase service-account key inside the container.
+      FCM_SERVICE_ACCOUNT_FILE: ${FCM_SERVICE_ACCOUNT_FILE:-}
+      TZ: ${TZ:-UTC}
     volumes:
-      - brevduva-data:/data
+      - pigeonpost-data:/data
+      # Uncomment to enable push and Android app updates (see README, "Android app"):
+      # - ./secrets:/run/secrets:ro
+      # - ./android-releases:/data/android:ro
     restart: unless-stopped
 
-  # Lokal testmailserver för utveckling: docker compose --profile dev up
-  # Alla användarnamn/lösenord accepteras och brevlådor skapas automatiskt.
+  db:
+    image: mariadb:11.8
+    container_name: pigeonpost-db
+    environment:
+      MARIADB_DATABASE: pigeonpost
+      MARIADB_USER: pigeonpost
+      # Only applied when the database is first created. Change it later with ALTER USER.
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD, e.g. in .env}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - pigeonpost-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # Local test mail server for development: docker compose --profile dev up -d
+  # Accepts any username/password and creates mailboxes automatically.
   mailserver:
     image: greenmail/standalone:2.1.3
     profiles: ["dev"]
@@ -40,5 +84,7 @@ services:
       - "3143:3143"
 
 volumes:
-  brevduva-data:
-    name: brevduva-data
+  pigeonpost-data:
+    name: pigeonpost-data
+  pigeonpost-db:
+    name: pigeonpost-db

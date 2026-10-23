@@ -112,6 +112,11 @@ std::optional<User> Auth::userForToken(const std::string& token) {
     return db_.userForSession(crypto::toHex(crypto::sha256(token)), nowSeconds());
 }
 
+std::int64_t Auth::sessionExpiresAt(const std::string& token) {
+    if (token.size() != 64) return 0;
+    return db_.sessionExpiresAt(crypto::toHex(crypto::sha256(token)));
+}
+
 void Auth::destroySession(const std::string& token) {
     if (!token.empty()) db_.deleteSession(crypto::toHex(crypto::sha256(token)));
 }

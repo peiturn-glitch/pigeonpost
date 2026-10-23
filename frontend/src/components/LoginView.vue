@@ -49,7 +49,7 @@ async function submit() {
   <div class="login">
     <form class="card" @submit.prevent="submit">
       <div class="logo"><Icon name="mail" :size="36" /></div>
-      <h1>Brevduva</h1>
+      <h1>PigeonPost</h1>
       <p v-if="setup" class="muted">
         Välkommen! Skapa administratörskontot. Administratören kan sedan lägga till fler användare.
       </p>
@@ -80,6 +80,11 @@ async function submit() {
         <template v-else>{{ busy ? 'Loggar in…' : 'Logga in' }}</template>
       </button>
     </form>
+    <nav class="legal">
+      <a href="/privacy.html">Integritetspolicy</a>
+      <span aria-hidden="true">·</span>
+      <a href="/terms.html">Användarvillkor</a>
+    </nav>
   </div>
 </template>
 
@@ -87,6 +92,8 @@ async function submit() {
 .login {
   height: 100%;
   display: flex;
+  flex-direction: column;
+  gap: 16px;
   align-items: center;
   justify-content: center;
   padding: 16px;
@@ -132,5 +139,20 @@ label span {
 .btn {
   justify-content: center;
   padding: 8px;
+}
+
+.legal {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.legal a {
+  color: inherit;
+}
+
+.legal a:hover {
+  color: var(--accent);
 }
 </style>

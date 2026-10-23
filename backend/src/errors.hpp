@@ -30,6 +30,11 @@ struct TooManyRequests : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+// Klientens utgångspunkt finns inte längre (t.ex. en för gammal synkmarkör) -> HTTP 410.
+struct Gone : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
 // Nätverksfel mot mailserver (anslutning bruten, timeout). Anslutningen kan återupprättas.
 struct NetError : std::runtime_error {
     using std::runtime_error::runtime_error;
@@ -37,6 +42,11 @@ struct NetError : std::runtime_error {
 
 // Servern svarade NO/BAD eller avvisade inloggning -> HTTP 502.
 struct MailServerError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+// AI-tjänsten svarade med fel eller gick inte att nå -> HTTP 502.
+struct AiError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 

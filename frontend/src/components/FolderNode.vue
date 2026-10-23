@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useMailStore } from '../store'
-import { folderLabel } from '../utils'
+import { folderLabel, isInsideFolder } from '../utils'
 import Icon from './Icon.vue'
 
 const props = defineProps({
@@ -30,18 +30,47 @@ function openMenu(event) {
   const items = [{ label: 'Ny undermapp…', action: () => store.createFolder(props.accountId, props.node.path, props.node.delimiter) }]
   if (!props.node.specialUse && props.node.selectable) {
     items.push({ label: 'Byt namn…', action: () => store.renameFolder(props.accountId, props.node) })
+    items.push({ label: 'Flytta mapp…', action: () => (store.folderMoveDialog = { accountId: props.accountId, folder: props.node }) })
     items.push({ label: 'Ta bort mapp', danger: true, action: () => store.deleteFolder(props.accountId, props.node) })
+  }
+  if (props.node.selectable && !['drafts', 'all', 'flagged', 'important'].includes(props.node.specialUse)) {
+    items.push({ label: 'Sortera med AI…', action: () => (store.aiDialog = { accountId: props.accountId, folder: props.node.path }) })
   }
   if (props.node.selectable && props.node.unread > 0 && isCurrent.value) {
     items.unshift({
       label: 'Markera alla som lästa',
-      action: () => store.setFlag('seen', true, store.messages.filter((m) => !m.seen).map((m) => m.uid)),
+      action: () => store.setFlag('seen', true, store.messages.filter((m) => !m.seen).map((m) => m.key)),
     })
   }
   store.contextMenu = { x: event.clientX, y: event.clientY, items }
 }
 
+const FOLDER_TYPE = 'application/x-brevduva-folder'
+const canDrag = computed(() => store.canMoveFolder(props.node))
+
+function onDragStart(event) {
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData(FOLDER_TYPE, JSON.stringify({ accountId: props.accountId, path: props.node.path }))
+  event.dataTransfer.setData('text/plain', props.node.name)
+  store.draggedFolder = { accountId: props.accountId, folder: props.node }
+}
+
+// Innehållet i en dragning går inte att läsa under dragover, så mappen som dras finns i store.draggedFolder.
+function acceptsFolder() {
+  const dragged = store.draggedFolder
+  if (!dragged || dragged.accountId !== props.accountId) return false
+  if (['all', 'flagged', 'important'].includes(props.node.specialUse)) return false
+  return !isInsideFolder(props.node.path, dragged.folder) && store.parentPath(dragged.folder) !== props.node.path
+}
+
 function onDragOver(event) {
+  if (event.dataTransfer.types.includes(FOLDER_TYPE)) {
+    if (!acceptsFolder()) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    dropActive.value = true
+    return
+  }
   if (!props.node.selectable || !event.dataTransfer.types.includes('application/x-brevduva-messages')) return
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
@@ -50,15 +79,18 @@ function onDragOver(event) {
 
 function onDrop(event) {
   dropActive.value = false
+  if (event.dataTransfer.types.includes(FOLDER_TYPE)) {
+    event.preventDefault()
+    const dragged = store.draggedFolder
+    store.draggedFolder = null
+    if (dragged && dragged.accountId === props.accountId) store.moveFolder(dragged.accountId, dragged.folder, props.node.path)
+    return
+  }
   const raw = event.dataTransfer.getData('application/x-brevduva-messages')
   if (!raw) return
   event.preventDefault()
-  const data = JSON.parse(raw)
-  if (data.accountId !== props.accountId) {
-    store.notify('Flytt mellan konton stöds inte ännu', 'error')
-    return
-  }
-  store.moveMessages(props.node.path, data.uids, data.folder)
+  // Mejl från andra konton (möjligt i en samlad vy) hoppas över av moveMessages, som också säger till.
+  store.moveMessages(props.node.path, JSON.parse(raw).keys, props.accountId)
 }
 </script>
 
@@ -68,6 +100,9 @@ function onDrop(event) {
       class="row"
       :class="{ current: isCurrent, drop: dropActive, disabled: !node.selectable }"
       :style="{ paddingLeft: depth * 14 + 'px' }"
+      :draggable="canDrag"
+      @dragstart="onDragStart"
+      @dragend="store.draggedFolder = null"
       @click="select"
       @contextmenu.prevent="openMenu"
       @dragover="onDragOver"

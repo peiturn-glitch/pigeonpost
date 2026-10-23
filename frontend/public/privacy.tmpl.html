@@ -1,0 +1,163 @@
+<!doctype html>
+<!-- Mall: {{SERVICE_URL}}, {{OPERATOR_NAME}} och {{OPERATOR_CONTACT_HTML}} fylls i av servern från PUBLIC_URL, OPERATOR_NAME
+     och OPERATOR_CONTACT. Vill du ha en helt egen sida lägger du en privacy.html/terms.html i den statiska katalogen
+     (t.ex. monterad över /app/public/privacy.html i containern); den serveras då i stället för mallen. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Privacy Policy – PigeonPost</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕊️</text></svg>" />
+<style>
+  :root { --bg: #f9f9fb; --pane: #ffffff; --border: #d7d7db; --text: #15141a; --muted: #5b5b66; --accent: #0061e0; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1b22; --pane: #232229; --border: #3a3944; --text: #fbfbfe; --muted: #adadb8; --accent: #3b8cff; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding-inline: 16px; }
+  main { max-width: 760px; margin: 40px auto; background: var(--pane); border: 1px solid var(--border); border-radius: 8px; padding: 8px 32px 32px; }
+  h1 { font-size: 1.8rem; margin-bottom: 0; } h2 { font-size: 1.25rem; margin-top: 2rem; } h3 { font-size: 1.05rem; }
+  .meta, nav { color: var(--muted); } a { color: var(--accent); } hr { border: 0; border-top: 1px solid var(--border); margin: 3rem 0 1rem; }
+  @media (max-width: 500px) { main { padding: 4px 18px 24px; margin: 16px auto; } }
+</style>
+</head>
+<body>
+<main>
+<h1>🕊️ PigeonPost – Privacy Policy</h1>
+<p class="meta">This instance: <a href="{{SERVICE_URL}}">{{SERVICE_URL}}</a> · Operated by {{OPERATOR_NAME}}</p>
+<nav><a href="#svenska">På svenska</a> · <a href="/terms.html">Terms of Service</a></nav>
+
+<p>PigeonPost is a self-hosted, open-source web and Android email client. This instance is run by {{OPERATOR_NAME}} for its own users. This policy explains what data the software handles, including data received from Google, and how it is protected.</p>
+
+<h2>1. Who is responsible</h2>
+<p>The operator of this instance, {{OPERATOR_NAME}}, is responsible for the data it stores. Contact: {{OPERATOR_CONTACT_HTML}}.</p>
+
+<h2>2. Data we store</h2>
+<ul>
+  <li><strong>Your PigeonPost user account:</strong> username, a scrypt hash of your password (never the password itself), whether you are an administrator, and when the account was created.</li>
+  <li><strong>Sessions:</strong> a SHA-256 hash of your login token and its expiry time. Sessions expire after 14 days.</li>
+  <li><strong>Email account settings you add:</strong> display name, email address, IMAP/SMTP server settings, username, signature and extra sender identities.</li>
+  <li><strong>Credentials for your email accounts:</strong> mail server passwords and Google refresh tokens are stored encrypted with AES-256-GCM. Google access tokens are kept only in memory.</li>
+  <li><strong>A cache of your email:</strong> to make the client fast and usable when your mail server is slow or unreachable, PigeonPost keeps a copy of your folders, message headers, flags and message text in its database, and recently opened messages with attachments as files on the server. The cache is deleted when the email account or the user is removed. The operator can turn the cache off (<code>MAIL_CACHE=0</code>).</li>
+  <li><strong>Preferences:</strong> for example senders whose remote images you always allow, folder choices for notifications, backup schedules and sorting rules.</li>
+  <li><strong>The Android app</strong> keeps a copy of your messages on the phone according to its storage settings, and sends a Firebase device token to the server so that the server can notify the phone about new mail.</li>
+</ul>
+
+<h2>3. Google user data</h2>
+<p>If you choose <em>Sign in with Google</em> to connect a Gmail or Google Workspace account, PigeonPost requests these permissions:</p>
+<ul>
+  <li><strong><code>https://mail.google.com/</code></strong>: used only to connect to your Gmail account over IMAP and SMTP, so you can read, organize, search, draft and send email in PigeonPost, just like a desktop email client.</li>
+  <li><strong><code>openid</code>, <code>email</code>, <code>profile</code></strong>: used only to fill in your email address and name when the account is set up.</li>
+  <li><strong><code>drive.file</code></strong> (only if you connect Google Drive for backups): used only to upload backup files that PigeonPost itself creates, in a folder of its own.</li>
+</ul>
+<p>How PigeonPost handles Google user data:</p>
+<ul>
+  <li>Your email is processed to show it to you, to keep the cache described above up to date, and to carry out actions you ask for. It is not used for any other purpose.</li>
+  <li>The Google refresh token is stored encrypted and is used only to keep your connection active.</li>
+  <li>Google user data is <strong>not</strong> sold, shared with or transferred to third parties, used for advertising, or used to develop, improve or train artificial intelligence or machine learning models.</li>
+  <li>No human reads your email, except where you have given explicit consent for a specific message, where it is needed for security purposes such as investigating abuse, or where required by law.</li>
+</ul>
+<p>PigeonPost's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+<h2>4. Optional AI sorting</h2>
+<p>If you turn on sorting with an AI service, you choose the service and provide your own API key. For each message that is sorted, PigeonPost sends the sender, recipients, subject, date, the first 500 characters of the text and the names of your folders to that service. Attachments are never sent. The AI service's own terms apply to this data. Nothing is sent to any AI service unless you turn the feature on.</p>
+
+<h2>5. Push notifications (Android)</h2>
+<p>If the operator has enabled push notifications and you use the Android app, the server sends the sender name, subject and folder of new messages to your phone through Firebase Cloud Messaging, operated by Google. Message bodies are never sent this way.</p>
+
+<h2>6. Cookies and tracking</h2>
+<p>PigeonPost uses a single strictly necessary session cookie to keep you logged in. There are no analytics, advertising, or third-party trackers. Remote images in emails are blocked until you choose to load them.</p>
+
+<h2>7. Logs</h2>
+<p>The server keeps technical logs of requests (such as IP address, time and requested path) and error messages, for operation and security. Logs do not contain email content.</p>
+
+<h2>8. Sharing</h2>
+<p>Data is not shared with anyone. PigeonPost communicates only with the mail servers you configure, with Google's services if you use Google sign-in, Google Drive backups or push notifications, and with an AI service if you turn on AI sorting.</p>
+
+<h2>9. Retention and deletion</h2>
+<ul>
+  <li>When you remove an email account in PigeonPost, its settings, credentials and cached email are deleted, and any Google access is revoked with Google.</li>
+  <li>When a user is deleted, all of that user's email accounts, identities, sessions, preferences and cached email are deleted.</li>
+  <li>You can also revoke PigeonPost's access at any time at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+  <li>To have your user account and all related data deleted, contact {{OPERATOR_CONTACT_HTML}}.</li>
+</ul>
+
+<h2>10. Security</h2>
+<p>Passwords for PigeonPost are hashed with scrypt. Mail server credentials and Google tokens are encrypted at rest. HTML email is displayed in a sandbox without scripts, and remote content is blocked by default. The operator is responsible for serving this instance over HTTPS and for protecting the server and its database.</p>
+
+<h2>11. Your rights</h2>
+<p>You can see and change your email account settings in the app at any time. Contact {{OPERATOR_CONTACT_HTML}} to access, correct or delete the data stored about you, or with any question about this policy.</p>
+
+<h2>12. Changes</h2>
+<p>This policy may be updated. The current version is always published on this page.</p>
+
+<hr id="svenska" />
+
+<h1 lang="sv">PigeonPost – Integritetspolicy</h1>
+<div lang="sv">
+<p class="meta">Den här instansen: <a href="{{SERVICE_URL}}">{{SERVICE_URL}}</a> · Drivs av {{OPERATOR_NAME}}</p>
+
+<p>PigeonPost är en webb- och Android-baserad e-postklient med öppen källkod som var och en kan köra på en egen server. Den här instansen drivs av {{OPERATOR_NAME}} för sina egna användare. Här beskrivs vilka uppgifter programvaran hanterar, inklusive uppgifter från Google, och hur de skyddas.</p>
+
+<h2>1. Personuppgiftsansvarig</h2>
+<p>Den som driver instansen, {{OPERATOR_NAME}}, ansvarar för uppgifterna som sparas. Kontakt: {{OPERATOR_CONTACT_HTML}}.</p>
+
+<h2>2. Uppgifter som sparas</h2>
+<ul>
+  <li><strong>Ditt användarkonto i PigeonPost:</strong> användarnamn, en scrypt-hash av lösenordet (aldrig själva lösenordet), om du är administratör och när kontot skapades.</li>
+  <li><strong>Sessioner:</strong> en SHA-256-hash av din inloggningstoken och när den går ut. Sessioner gäller i 14 dagar.</li>
+  <li><strong>Inställningar för e-postkonton du lägger till:</strong> namn, e-postadress, IMAP- och SMTP-inställningar, användarnamn, signatur och extra avsändare.</li>
+  <li><strong>Inloggningsuppgifter till e-postkontona:</strong> lösenord till mejlservrar och Googles refresh-token sparas krypterade med AES-256-GCM. Googles access-token finns bara i minnet.</li>
+  <li><strong>En kopia av din e-post:</strong> för att klienten ska vara snabb och fungera när mejlservern är seg eller onåbar sparar PigeonPost mappar, rubriker, flaggor och meddelandetext i sin databas, och nyligen öppnade meddelanden med bilagor som filer på servern. Kopian tas bort när e-postkontot eller användaren tas bort. Den som driver instansen kan stänga av kopian (<code>MAIL_CACHE=0</code>).</li>
+  <li><strong>Inställningar:</strong> till exempel avsändare vars bilder du alltid tillåter, mappval för notiser, backupscheman och sorteringsregler.</li>
+  <li><strong>Android-appen</strong> sparar en kopia av dina mejl i telefonen enligt dess lagringsinställningar och skickar en Firebase-enhetstoken till servern så att servern kan meddela telefonen om ny post.</li>
+</ul>
+
+<h2>3. Uppgifter från Google</h2>
+<p>Om du väljer <em>Logga in med Google</em> för att ansluta ett Gmail- eller Google Workspace-konto begär PigeonPost dessa behörigheter:</p>
+<ul>
+  <li><strong><code>https://mail.google.com/</code></strong>: används bara för att ansluta till ditt Gmail-konto via IMAP och SMTP, så att du kan läsa, ordna, söka, skriva och skicka e-post i PigeonPost, precis som i ett vanligt e-postprogram.</li>
+  <li><strong><code>openid</code>, <code>email</code>, <code>profile</code></strong>: används bara för att fylla i din e-postadress och ditt namn när kontot läggs till.</li>
+  <li><strong><code>drive.file</code></strong> (bara om du ansluter Google Drive för backup): används bara för att ladda upp backupfiler som PigeonPost själv skapar, i en egen mapp.</li>
+</ul>
+<p>Så hanterar PigeonPost uppgifter från Google:</p>
+<ul>
+  <li>Din e-post behandlas för att visas för dig, för att hålla kopian ovan uppdaterad och för att utföra det du ber om. Den används inte för något annat.</li>
+  <li>Googles refresh-token sparas krypterad och används bara för att hålla anslutningen igång.</li>
+  <li>Uppgifter från Google säljs <strong>inte</strong>, delas inte med eller överförs inte till tredje part, används inte för reklam och används inte för att utveckla, förbättra eller träna AI- eller maskininlärningsmodeller.</li>
+  <li>Ingen människa läser din e-post, utom när du uttryckligen gett samtycke för ett visst meddelande, när det behövs av säkerhetsskäl som vid utredning av missbruk, eller när lagen kräver det.</li>
+</ul>
+<p>PigeonPosts användning och överföring av uppgifter från Googles API:er följer <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, inklusive kraven på begränsad användning.</p>
+
+<h2>4. Valfri sortering med AI</h2>
+<p>Om du slår på sortering med en AI-tjänst väljer du tjänst själv och anger din egen API-nyckel. För varje meddelande som sorteras skickar PigeonPost avsändare, mottagare, ämne, datum, de första 500 tecknen av texten och namnen på dina mappar till tjänsten. Bilagor skickas aldrig. AI-tjänstens egna villkor gäller för de uppgifterna. Inget skickas till någon AI-tjänst om du inte slår på funktionen.</p>
+
+<h2>5. Push-notiser (Android)</h2>
+<p>Om den som driver instansen har aktiverat push-notiser och du använder Android-appen skickar servern avsändarnamn, ämne och mapp för nya meddelanden till din telefon via Firebase Cloud Messaging, som drivs av Google. Meddelandetexten skickas aldrig den vägen.</p>
+
+<h2>6. Kakor och spårning</h2>
+<p>PigeonPost använder en enda nödvändig sessionskaka för att hålla dig inloggad. Det finns ingen analys, reklam eller spårning från tredje part. Bilder från nätet i mejl blockeras tills du väljer att visa dem.</p>
+
+<h2>7. Loggar</h2>
+<p>Servern för tekniska loggar över anrop (som IP-adress, tid och sökväg) och felmeddelanden, för drift och säkerhet. Loggarna innehåller inte e-postens innehåll.</p>
+
+<h2>8. Delning</h2>
+<p>Uppgifter delas inte med någon. PigeonPost kommunicerar bara med de mejlservrar du anger, med Googles tjänster om du använder Google-inloggning, backup till Google Drive eller push-notiser, och med en AI-tjänst om du slår på AI-sortering.</p>
+
+<h2>9. Lagring och radering</h2>
+<ul>
+  <li>När du tar bort ett e-postkonto i PigeonPost raderas dess inställningar, inloggningsuppgifter och e-postkopia, och eventuell Google-åtkomst återkallas hos Google.</li>
+  <li>När en användare tas bort raderas alla användarens e-postkonton, avsändare, sessioner, inställningar och e-postkopior.</li>
+  <li>Du kan också när som helst återkalla PigeonPosts åtkomst på <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+  <li>Kontakta {{OPERATOR_CONTACT_HTML}} om du vill att ditt användarkonto och alla tillhörande uppgifter raderas.</li>
+</ul>
+
+<h2>10. Säkerhet</h2>
+<p>Lösenord till PigeonPost hashas med scrypt. Inloggningsuppgifter till mejlservrar och Google-token krypteras. HTML-mejl visas i en sandlåda utan skript, och innehåll från nätet blockeras tills du tillåter det. Den som driver instansen ansvarar för att den nås via HTTPS och för att skydda servern och dess databas.</p>
+
+<h2>11. Dina rättigheter</h2>
+<p>Du kan se och ändra dina e-postkontons inställningar i appen när som helst. Kontakta {{OPERATOR_CONTACT_HTML}} för att få tillgång till, rätta eller radera uppgifterna om dig, eller med frågor om den här policyn.</p>
+
+<h2>12. Ändringar</h2>
+<p>Policyn kan uppdateras. Den aktuella versionen finns alltid på den här sidan.</p>
+</div>
+</main>
+</body>
+</html>

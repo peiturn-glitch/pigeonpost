@@ -9,15 +9,20 @@ const store = useMailStore()
 const allowRemote = ref(false)
 
 const msg = computed(() => store.openMessage)
-const isDraft = computed(() => store.currentFolderInfo?.specialUse === 'drafts' || msg.value?.draft)
+const isDraft = computed(() => (msg.value && store.folderInfo(msg.value.accountId, msg.value.folder)?.specialUse === 'drafts') || msg.value?.draft)
 const visibleAttachments = computed(() => (msg.value?.attachments || []).filter((a) => !a.inline))
 
 watch(
-  () => msg.value?.uid,
+  () => msg.value?.key,
   () => {
     allowRemote.value = false
   },
 )
+
+// Avsändaren som användaren kan välja att alltid lita på. Bara när det finns exakt en avsändaradress.
+const senderEmail = computed(() => (msg.value?.from?.length === 1 ? (msg.value.from[0].email || '').trim().toLowerCase() : ''))
+const trustedSender = computed(() => !!senderEmail.value && store.remoteSenders.has(senderEmail.value))
+const showRemote = computed(() => allowRemote.value || trustedSender.value)
 
 const remotePattern = /(?:src|background|poster)\s*=\s*["']?\s*(?:https?:)?\/\/|url\(\s*["']?\s*(?:https?:)?\/\//i
 const hasRemoteContent = computed(() => !!msg.value?.html && remotePattern.test(msg.value.html))
@@ -25,7 +30,7 @@ const hasRemoteContent = computed(() => !!msg.value?.html && remotePattern.test(
 // HTML-meddelanden visas i en sandlådad iframe utan skript. CSP blockerar fjärrinnehåll tills användaren tillåter det.
 const srcdoc = computed(() => {
   if (!msg.value?.html) return ''
-  const remote = allowRemote.value ? ' https: http:' : ''
+  const remote = showRemote.value ? ' https: http:' : ''
   const csp = [
     "default-src 'none'",
     `img-src data:${remote}`,
@@ -33,7 +38,10 @@ const srcdoc = computed(() => {
     `font-src data:${remote}`,
     `media-src data:${remote}`,
   ].join('; ')
-  const body = msg.value.html.replace(/<meta\b[^>]*>/gi, '')
+  // Inbäddade bilder (cid:) sätts in av store.loadInlineImages när de har hämtats. Till dess visas en tom bild,
+  // så att läsrutans CSP inte loggar ett fel för varje bild.
+  const blank = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+  const body = msg.value.html.replace(/<meta\b[^>]*>/gi, '').replace(/(\bsrc\s*=\s*["']?)cid:[^"'\s>]+/gi, `$1${blank}`)
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <base target="_blank">
@@ -47,8 +55,16 @@ function addressesTitle(list) {
   return list.map(formatAddress).join(', ')
 }
 
-function attachmentHref(a, download = true) {
-  return attachmentUrl(msg.value.accountId, msg.value.folder, msg.value.uid, a.index, download)
+// Bilagor öppnas alltid i en ny flik. De typer som servern visar direkt (samma lista som i backend)
+// öppnas för läsning; övriga laddas ned, och den nya fliken stängs då av webbläsaren.
+const viewableTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain'])
+
+function isViewable(a) {
+  return viewableTypes.has((a.contentType || '').split(';')[0].trim().toLowerCase())
+}
+
+function attachmentHref(a) {
+  return attachmentUrl(msg.value.accountId, msg.value.folder, msg.value.uid, a.index, !isViewable(a))
 }
 </script>
 
@@ -69,16 +85,16 @@ function attachmentHref(a, download = true) {
           <button class="btn" title="Svara" @click="store.startCompose('reply')"><Icon name="reply" /> Svara</button>
           <button class="btn" title="Svara alla" @click="store.startCompose('replyAll')"><Icon name="replyAll" /></button>
           <button class="btn" title="Vidarebefordra" @click="store.startCompose('forward')"><Icon name="forward" /></button>
-          <button class="btn" :title="msg.flagged ? 'Ta bort stjärna' : 'Stjärnmärk'" @click="store.setFlag('flagged', !msg.flagged, [msg.uid])">
+          <button class="btn" :title="msg.flagged ? 'Ta bort stjärna' : 'Stjärnmärk'" @click="store.setFlag('flagged', !msg.flagged, [msg.key])">
             <Icon name="star" class="star" :class="{ on: msg.flagged }" />
           </button>
-          <button class="btn" title="Markera som oläst" @click="store.setFlag('seen', false, [msg.uid])">
+          <button class="btn" title="Markera som oläst" @click="store.setFlag('seen', false, [msg.key])">
             <Icon name="unread" />
           </button>
           <a class="btn" title="Visa källkod" :href="sourceUrl(msg.accountId, msg.folder, msg.uid)" target="_blank" rel="noopener">
             <Icon name="code" />
           </a>
-          <button class="btn danger" title="Ta bort" @click="store.deleteMessages([msg.uid])"><Icon name="trash" /></button>
+          <button class="btn danger" title="Ta bort" @click="store.deleteMessages([msg.key])"><Icon name="trash" /></button>
         </div>
 
         <dl>
@@ -104,15 +120,27 @@ function attachmentHref(a, download = true) {
         </dl>
       </header>
 
-      <div v-if="hasRemoteContent && !allowRemote" class="remote-banner">
+      <div v-if="hasRemoteContent && !showRemote" class="remote-banner">
         <span>Fjärrinnehåll har blockerats för att skydda din integritet.</span>
         <button class="btn" @click="allowRemote = true">Visa fjärrinnehåll</button>
+        <button
+          v-if="senderEmail"
+          class="btn"
+          :title="`Fjärrinnehåll visas direkt i alla mejl från ${senderEmail}, även framtida`"
+          @click="store.setRemoteSenderTrusted(senderEmail, true)"
+        >
+          Visa alltid från {{ senderEmail }}
+        </button>
+      </div>
+      <div v-else-if="hasRemoteContent && trustedSender" class="remote-banner trusted">
+        <span>Fjärrinnehåll visas alltid från {{ senderEmail }}.</span>
+        <button class="link" @click="store.setRemoteSenderTrusted(senderEmail, false)">Sluta lita på avsändaren</button>
       </div>
 
       <div class="body">
         <iframe
           v-if="msg.html"
-          :key="`${msg.uid}-${allowRemote}`"
+          :key="`${msg.key}-${showRemote}`"
           class="html-frame"
           sandbox="allow-popups allow-popups-to-escape-sandbox"
           referrerpolicy="no-referrer"
@@ -122,6 +150,9 @@ function attachmentHref(a, download = true) {
         <pre v-else class="plain"><template v-for="(seg, i) in textSegments" :key="i"><a v-if="seg.type === 'link'" :href="seg.value" target="_blank" rel="noopener noreferrer">{{ seg.value }}</a><template v-else>{{ seg.value }}</template></template></pre>
       </div>
 
+      <p v-if="msg.partial" class="partial-note muted">
+        Mejlservern går inte att nå. Texten är sparad, men bilagor kan saknas i listan och går inte att öppna just nu.
+      </p>
       <footer v-if="visibleAttachments.length" class="attachments">
         <span class="muted"><Icon name="paperclip" :size="14" /> {{ visibleAttachments.length }} bilaga(or)</span>
         <a
@@ -129,9 +160,11 @@ function attachmentHref(a, download = true) {
           :key="a.index"
           class="attachment"
           :href="attachmentHref(a)"
-          :title="`Ladda ned ${a.filename}`"
+          target="_blank"
+          rel="noopener"
+          :title="isViewable(a) ? `Öppna ${a.filename} i en ny flik` : `Ladda ned ${a.filename}`"
         >
-          <Icon name="download" :size="14" />
+          <Icon :name="isViewable(a) ? 'link' : 'download'" :size="14" />
           <span class="att-name">{{ a.filename }}</span>
           <span class="muted">{{ formatSize(a.size) }}</span>
         </a>
@@ -141,6 +174,13 @@ function attachmentHref(a, download = true) {
 </template>
 
 <style scoped>
+.partial-note {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+
 .message-view {
   height: 100%;
   display: flex;
@@ -227,12 +267,30 @@ dd {
 
 .remote-banner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 6px 12px;
   padding: 6px 14px;
   background: #fff4cc;
   color: #4a3b00;
   border-bottom: 1px solid var(--border);
+}
+
+.remote-banner.trusted {
+  background: var(--pane-alt);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 3px 14px;
+}
+
+.remote-banner .link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
 }
 
 .body {

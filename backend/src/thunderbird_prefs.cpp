@@ -281,7 +281,7 @@ int socketTypeFromSecurity(const std::string& security) {
     return kSocketPlain;
 }
 
-// Thunderbirds signaturer kan vara HTML; vi lagrar ren text.
+// Thunderbirds signaturer kan vara HTML. Textversionen används i meddelanden utan formatering.
 std::string htmlToText(const std::string& html) {
     std::string out;
     std::size_t i = 0;
@@ -357,6 +357,11 @@ std::string signatureOf(const PrefReader& r, const std::string& prefix) {
     return sig;
 }
 
+// Den formaterade signaturen, om signaturen är HTML i Thunderbird. Klienten tvättar HTML:en innan den används.
+std::string signatureHtmlOf(const PrefReader& r, const std::string& prefix) {
+    return r.boolean(prefix + "htmlSigFormat", false) ? r.str(prefix + "htmlSigText") : std::string();
+}
+
 // --- Zip -------------------------------------------------------------------------
 
 std::uint32_t crc32(const std::string& data) {
@@ -423,7 +428,7 @@ public:
         // Thunderbird skriver prefs.js sorterad; gör likadant så att filen känns igen.
         std::sort(lines_.begin(), lines_.end());
         std::string out = "// Mozilla User Preferences\n\n"
-                          "// Exporterad från Brevduva. Lösenord ingår inte; Thunderbird frågar efter dem.\n\n";
+                          "// Exporterad från PigeonPost. Lösenord ingår inte; Thunderbird frågar efter dem.\n\n";
         for (const auto& line : lines_) out += line + "\n";
         return out;
     }
@@ -512,6 +517,7 @@ json importPreview(const Prefs& prefs, const std::vector<Account>& existing) {
                 {"email", xEmail},
                 {"replyTo", r.str(xp + "reply_to")},
                 {"signature", signatureOf(r, xp)},
+                {"signatureHtml", signatureHtmlOf(r, xp)},
                 {"useAccountSmtp", sameSmtp},
             };
             if (!sameSmtp) {
@@ -541,6 +547,7 @@ json importPreview(const Prefs& prefs, const std::vector<Account>& existing) {
             {"smtpSecurity", smtp.security},
             {"smtpUsername", smtp.username == username ? "" : smtp.username},
             {"signature", signatureOf(r, ip)},
+            {"signatureHtml", signatureHtmlOf(r, ip)},
             {"tlsVerify", true},
             {"identities", identities},
             {"warnings", warnings},
@@ -604,7 +611,8 @@ std::string exportPrefs(const std::vector<std::pair<Account, std::vector<Identit
 
         std::vector<std::string> identityKeys;
         auto writeIdentity = [&](const std::string& fullName, const std::string& email, const std::string& replyTo,
-                                 const std::string& signature, const std::string& smtpKey) {
+                                 const std::string& signature, const std::string& signatureHtml,
+                                 const std::string& smtpKey) {
             std::string key = "id" + std::to_string(++identityCounter);
             identityKeys.push_back(key);
             std::string ip = "mail.identity." + key + ".";
@@ -613,19 +621,23 @@ std::string exportPrefs(const std::vector<std::pair<Account, std::vector<Identit
             if (!replyTo.empty()) w.str(ip + "reply_to", replyTo);
             w.str(ip + "smtpServer", smtpKey);
             w.boolean(ip + "valid", true);
-            if (!signature.empty()) {
+            if (!signatureHtml.empty()) {
+                w.str(ip + "htmlSigText", signatureHtml);
+                w.boolean(ip + "htmlSigFormat", true);
+            } else if (!signature.empty()) {
                 w.str(ip + "htmlSigText", signature);
                 w.boolean(ip + "htmlSigFormat", false);
             }
         };
 
-        writeIdentity(account.name, account.email, "", account.signature, accountSmtp);
+        writeIdentity(account.name, account.email, "", account.signature, account.signatureHtml, accountSmtp);
         for (const auto& identity : identities) {
             std::string smtpKey = identity.useAccountSmtp
                                       ? accountSmtp
                                       : smtpKeyFor(identity.smtpHost, identity.smtpPort, identity.smtpSecurity,
                                                    identity.smtpUsername, identity.email, false);
-            writeIdentity(identity.name, identity.email, identity.replyTo, identity.signature, smtpKey);
+            writeIdentity(identity.name, identity.email, identity.replyTo, identity.signature, identity.signatureHtml,
+                          smtpKey);
         }
 
         std::string identityList;

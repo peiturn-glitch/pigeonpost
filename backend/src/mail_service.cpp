@@ -1,6 +1,7 @@
 #include "mail_service.hpp"
 
 #include "errors.hpp"
+#include "mail_cache.hpp"
 #include "smtp.hpp"
 
 #include <algorithm>
@@ -13,7 +14,13 @@ namespace brevduva {
 namespace {
 
 constexpr auto kIdleCheckAfter = std::chrono::seconds(60);
-constexpr std::size_t kRawCacheEntries = 8;
+// Ordinarie tidsgräns per läsning/skrivning mot IMAP-servern, och den kortare som gäller
+// när en återanvänd anslutning kontrolleras med NOOP: ett NOOP-svar ska komma på en bråkdels
+// sekund, så svarar servern inte på några sekunder är anslutningen död.
+constexpr int kImapTimeoutSeconds = 30;
+constexpr int kLivenessTimeoutSeconds = 5;
+// Uppkopplingar som tar längre än så här loggas, så att tröga mejlservrar syns i loggen.
+constexpr auto kSlowConnectLog = std::chrono::seconds(3);
 
 const char* kHeaderFetch =
     "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE CONTENT-TYPE)])";
@@ -87,18 +94,20 @@ Account smtpSettingsFor(const Account& acc, const Identity& identity) {
     return smtp;
 }
 
+}  // namespace
+
 std::string specialUseOf(const FolderInfo& f) {
     if (f.path == "INBOX") return "inbox";
     static const std::map<std::string, std::string> attrs = {
         {"\\sent", "sent"}, {"\\drafts", "drafts"}, {"\\trash", "trash"},
-        {"\\junk", "junk"}, {"\\archive", "archive"}, {"\\all", "all"}, {"\\flagged", "flagged"}};
+        {"\\junk", "junk"}, {"\\archive", "archive"}, {"\\all", "all"}, {"\\flagged", "flagged"},
+        // Gmails "Viktigt" är liksom "Alla meddelanden" och "Stjärnmärkt" en vy över mejl som ligger i andra mappar.
+        {"\\important", "important"}};
     for (const auto& [attr, use] : attrs) {
         if (f.attributes.count(attr)) return use;
     }
     return specialUseByName(f.path, f.delimiter);
 }
-
-}  // namespace
 
 std::shared_ptr<MailService::Session> MailService::session(long long accountId) {
     std::lock_guard lock(sessionsMutex_);
@@ -134,18 +143,24 @@ auto MailService::withImap(long long accountId, F&& fn) {
 
     // En återanvänd anslutning kan ha stängts av servern; kontrollera med NOOP om den legat oanvänd.
     if (s->client && s->client->connected() && now - s->lastUse > kIdleCheckAfter) {
+        s->client->setTimeout(kLivenessTimeoutSeconds);
         try {
             s->client->noop();
-        } catch (const std::exception&) {
+            s->client->setTimeout(kImapTimeoutSeconds);
+        } catch (const std::exception& e) {
+            std::cerr << "[imap] konto " << accountId << ": anslutningen svarade inte på NOOP (" << e.what()
+                      << "); ansluter på nytt\n";
             s->client.reset();
         }
     }
     auto connect = [&]() {
-        Account acc = account(accountId);
-        auto client = std::make_unique<ImapClient>();
-        client->connect(acc.imapHost, acc.imapPort, parseSecurity(acc.imapSecurity), acc.tlsVerify);
-        login(*client, acc);
-        s->client = std::move(client);
+        auto start = std::chrono::steady_clock::now();
+        s->client = connectImap(account(accountId));
+        auto took = std::chrono::steady_clock::now() - start;
+        if (took > kSlowConnectLog) {
+            std::cerr << "[imap] konto " << accountId << ": uppkopplingen tog "
+                      << std::chrono::duration_cast<std::chrono::milliseconds>(took).count() / 1000.0 << " s\n";
+        }
     };
 
     bool reused = s->client && s->client->connected();
@@ -167,6 +182,13 @@ auto MailService::withImap(long long accountId, F&& fn) {
         s->client.reset();
         throw;
     }
+}
+
+std::unique_ptr<ImapClient> MailService::connectImap(const Account& acc) {
+    auto client = std::make_unique<ImapClient>();
+    client->connect(acc.imapHost, acc.imapPort, parseSecurity(acc.imapSecurity), acc.tlsVerify);
+    login(*client, acc);
+    return client;
 }
 
 void MailService::login(ImapClient& client, const Account& acc) {
@@ -218,9 +240,25 @@ std::optional<std::string> MailService::specialFolder(ImapClient& client, Sessio
     return it->second;
 }
 
-json MailService::listFolders(long long accountId) {
+json MailService::listFolders(long long accountId, bool withStatus) {
+    if (cache_) {
+        if (auto cached = cache_->folders(accountId, false)) return *cached;
+    }
+    try {
+        return listFoldersLive(accountId, withStatus);
+    } catch (const std::exception& e) {
+        // Mejlservern svarar inte: visa den mapplista som finns sparad.
+        if (cache_) {
+            if (dynamic_cast<const NetError*>(&e)) cache_->reportUnreachable(accountId, e.what());
+            if (auto cached = cache_->folders(accountId, true)) return *cached;
+        }
+        throw;
+    }
+}
+
+json MailService::listFoldersLive(long long accountId, bool withStatus) {
     return withImap(accountId, [&](ImapClient& client, Session& s) {
-        auto folders = client.listFolders(true);
+        auto folders = client.listFolders(withStatus);
         resolveSpecialFolders(s, folders);
         json out = json::array();
         for (const auto& f : folders) {
@@ -244,6 +282,7 @@ void MailService::createFolder(long long accountId, const std::string& path) {
         client.createFolder(path);
         s.specialResolved = false;
     });
+    if (cache_) cache_->foldersChanged(accountId);
 }
 
 void MailService::deleteFolder(long long accountId, const std::string& path) {
@@ -251,31 +290,66 @@ void MailService::deleteFolder(long long accountId, const std::string& path) {
     withImap(accountId, [&](ImapClient& client, Session& s) {
         client.deleteFolder(path);
         s.specialResolved = false;
-        s.rawCache.clear();
     });
+    if (cache_) cache_->folderDeleted(accountId, path);
 }
 
 void MailService::renameFolder(long long accountId, const std::string& from, const std::string& to) {
     if (from.empty() || to.empty() || from == "INBOX") throw BadRequest("Ogiltigt mappnamn");
+    if (to.size() > from.size() && to.compare(0, from.size(), from) == 0 && (to[from.size()] == '/' || to[from.size()] == '.')) {
+        throw BadRequest("En mapp kan inte flyttas in i sig själv");
+    }
     withImap(accountId, [&](ImapClient& client, Session& s) {
         client.renameFolder(from, to);
         s.specialResolved = false;
-        s.rawCache.clear();
     });
+    if (cache_) cache_->folderRenamed(accountId, from, to);
 }
 
 json MailService::listMessages(long long accountId, const MessageQuery& q) {
+    if (cache_) {
+        if (auto cached = cache_->messages(accountId, q, false)) return *cached;
+        // Mejlservern går inte att nå: visa det som finns, hellre än att vänta på en anslutning som inte kommer.
+        if (cache_->offline(accountId)) {
+            if (auto stale = cache_->messages(accountId, q, true)) return *stale;
+        }
+    }
+    try {
+        return listMessagesLive(accountId, q);
+    } catch (const std::exception& e) {
+        if (cache_) {
+            if (dynamic_cast<const NetError*>(&e)) cache_->reportUnreachable(accountId, e.what());
+            if (auto stale = cache_->messages(accountId, q, true)) return *stale;
+        }
+        throw;
+    }
+}
+
+json MailService::listMessagesLive(long long accountId, const MessageQuery& q) {
     return withImap(accountId, [&](ImapClient& client, Session&) {
         client.select(q.folder);
 
         ImapCommand criteria("ALL");
+        if (q.beforeUid > 1) criteria.raw(" UID 1:" + std::to_string(q.beforeUid - 1));
         if (q.unreadOnly) criteria.raw(" UNSEEN");
         if (q.flaggedOnly) criteria.raw(" FLAGGED");
         if (!q.text.empty()) {
             criteria.raw(" OR OR SUBJECT ").str(q.text).raw(" FROM ").str(q.text).raw(" TO ").str(q.text);
         }
-        auto uids = client.uidSearch(criteria, !isAscii(q.text));
-        std::sort(uids.begin(), uids.end(), std::greater<>());
+        // Servern sorterar om den kan (SORT-tillägget). Annars gäller ankomstordningen, som för det mesta är
+        // datumordning; Gmail saknar t.ex. SORT.
+        static const std::map<std::string, std::string> sortKeys = {
+            {"date", "DATE"}, {"subject", "SUBJECT"}, {"from", "FROM"}, {"to", "TO"}, {"size", "SIZE"}};
+        auto key = sortKeys.find(q.sort);
+        std::vector<std::uint32_t> uids;
+        if (key != sortKeys.end() && client.hasCapability("SORT")) {
+            uids = client.uidSort(std::string(q.descending ? "REVERSE " : "") + key->second, criteria, !isAscii(q.text));
+        } else {
+            uids = client.uidSearch(criteria, !isAscii(q.text));
+            if (q.descending) std::sort(uids.begin(), uids.end(), std::greater<>());
+            else std::sort(uids.begin(), uids.end());
+        }
+        if (q.beforeUid == 1) uids.clear();  // Inget UID är lägre än 1, och "UID 1:0" är inte giltig IMAP.
 
         json result = {{"total", uids.size()}, {"page", q.page}, {"pageSize", q.pageSize}};
         json messages = json::array();
@@ -286,8 +360,11 @@ json MailService::listMessages(long long accountId, const MessageQuery& q) {
             std::vector<std::uint32_t> pageUids(uids.begin() + static_cast<long>(start),
                                                 uids.begin() + static_cast<long>(end));
             auto fetched = client.uidFetch(ImapClient::uidSetFrom(pageUids), kHeaderFetch);
+            // Servern svarar i sin egen ordning; sidans ordning är den sorterade.
+            std::map<std::uint32_t, std::size_t> position;
+            for (std::size_t k = 0; k < pageUids.size(); ++k) position[pageUids[k]] = k;
             std::sort(fetched.begin(), fetched.end(),
-                      [](const FetchedMessage& a, const FetchedMessage& b) { return a.uid > b.uid; });
+                      [&](const FetchedMessage& a, const FetchedMessage& b) { return position[a.uid] < position[b.uid]; });
             for (const auto& m : fetched) {
                 auto h = mime::parseHeaders(m.body, m.internalDate);
                 messages.push_back({
@@ -310,76 +387,171 @@ json MailService::listMessages(long long accountId, const MessageQuery& q) {
     });
 }
 
-std::string MailService::rawMessage(ImapClient& client, Session& s, const MessageRef& ref) {
-    std::string key = ref.folder + '\n' + std::to_string(ref.uid);
-    for (const auto& [k, raw] : s.rawCache) {
-        if (k == key) return raw;
-    }
+std::string MailService::rawMessage(long long accountId, ImapClient& client, const MessageRef& ref) {
+    if (auto cached = rawCache_.get(accountId, ref.folder, ref.uid)) return *cached;
     client.select(ref.folder);
     auto fetched = client.uidFetch(std::to_string(ref.uid), "(UID BODY.PEEK[])");
     if (fetched.empty()) throw NotFound("Meddelandet finns inte längre");
-    s.rawCache.emplace_front(key, fetched.front().body);
-    while (s.rawCache.size() > kRawCacheEntries) s.rawCache.pop_back();
+    rawCache_.put(accountId, ref.folder, ref.uid, fetched.front().body);
     return fetched.front().body;
 }
 
 json MailService::getMessage(long long accountId, const MessageRef& ref, bool markSeen) {
-    return withImap(accountId, [&](ImapClient& client, Session& s) {
-        std::string raw = rawMessage(client, s, ref);
+    if (cache_) {
+        auto cached = cache_->message(accountId, ref, false);
+        if (cached) {
+            if (markSeen && !(*cached)["seen"].get<bool>()) {
+                // Läsningen ska inte vänta på mejlservern: cachen uppdateras nu och servern strax efteråt.
+                (*cached)["seen"] = true;
+                cache_->flagsChanged(accountId, ref.folder, {ref.uid}, {"seen"}, {});
+                cache_->markSeenLater(accountId, ref);
+            }
+            return *cached;
+        }
+        if (cache_->offline(accountId)) {
+            throw MailServerError("Mejlservern går inte att nå, och det här meddelandet har inte hunnit sparas i cachen.");
+        }
+    }
+    try {
+        return getMessageLive(accountId, ref, markSeen);
+    } catch (const NetError& e) {
+        if (cache_) {
+            cache_->reportUnreachable(accountId, e.what());
+            if (auto stale = cache_->message(accountId, ref, true)) return *stale;
+        }
+        throw;
+    }
+}
+
+json MailService::getMessageLive(long long accountId, const MessageRef& ref, bool markSeen) {
+    return withImap(accountId, [&](ImapClient& client, Session&) {
+        std::string raw = rawMessage(accountId, client, ref);
         client.select(ref.folder);
         auto flagsFetch = client.uidFetch(std::to_string(ref.uid), "(UID FLAGS)");
         if (flagsFetch.empty()) throw NotFound("Meddelandet finns inte längre");
         auto flags = flagsFetch.front().flags;
+        bool markedSeen = false;
         if (markSeen && !flags.count("\\seen")) {
             client.uidStore(std::to_string(ref.uid), "+FLAGS.SILENT", "\\Seen");
             flags.insert("\\seen");
+            markedSeen = true;
         }
 
-        auto msg = mime::parseMessage(raw);
-        json attachments = json::array();
-        for (const auto& a : msg.attachments) {
-            attachments.push_back({
-                {"index", a.index},
-                {"filename", a.filename},
-                {"contentType", a.contentType},
-                {"size", a.data.size()},
-                {"inline", a.inlineInHtml},
-            });
+        // Inbäddade bilder skickas inte med i HTML-delen; klienten hämtar dem som bilagor.
+        auto msg = mime::parseMessage(raw, false);
+        if (cache_) {
+            cache_->storeBody(accountId, ref, msg);
+            if (markedSeen) cache_->flagsChanged(accountId, ref.folder, {ref.uid}, {"seen"}, {});
         }
-        return json{
-            {"uid", ref.uid},
-            {"folder", ref.folder},
-            {"subject", msg.subject},
-            {"from", addressesJson(msg.from)},
-            {"to", addressesJson(msg.to)},
-            {"cc", addressesJson(msg.cc)},
-            {"replyTo", addressesJson(msg.replyTo)},
-            {"date", msg.date},
-            {"messageId", msg.messageId},
-            {"references", msg.references},
-            {"text", msg.text},
-            {"html", msg.html},
-            {"attachments", attachments},
-            {"seen", flags.count("\\seen") > 0},
-            {"flagged", flags.count("\\flagged") > 0},
-            {"answered", flags.count("\\answered") > 0},
-            {"draft", flags.count("\\draft") > 0},
-        };
+        json out = MailCache::bodyJson(msg);
+        out["uid"] = ref.uid;
+        out["folder"] = ref.folder;
+        out["subject"] = msg.subject;
+        out["from"] = addressesJson(msg.from);
+        out["to"] = addressesJson(msg.to);
+        out["date"] = msg.date;
+        out["text"] = msg.text;
+        out["html"] = msg.html;
+        out["seen"] = flags.count("\\seen") > 0;
+        out["flagged"] = flags.count("\\flagged") > 0;
+        out["answered"] = flags.count("\\answered") > 0;
+        out["draft"] = flags.count("\\draft") > 0;
+        return out;
     });
+}
+
+std::vector<MessageSummary> MailService::summarize(long long accountId, const std::string& folder,
+                                                   const std::vector<std::uint32_t>& uids, std::size_t bodyBytes) {
+    if (uids.empty()) return {};
+    return withImap(accountId, [&](ImapClient& client, Session&) {
+        client.select(folder);
+        std::string set = ImapClient::uidSetFrom(uids);
+        auto headers = client.uidFetch(set, "(UID FLAGS INTERNALDATE BODY.PEEK[HEADER])");
+        std::map<std::uint32_t, std::string> bodies;
+        for (auto& m : client.uidFetch(set, "(UID BODY.PEEK[TEXT]<0." + std::to_string(bodyBytes) + ">)")) {
+            bodies[m.uid] = std::move(m.body);
+        }
+
+        std::vector<MessageSummary> out;
+        for (const auto& m : headers) {
+            auto h = mime::parseHeaders(m.body, m.internalDate);
+            MessageSummary summary;
+            summary.uid = m.uid;
+            summary.subject = h.subject;
+            summary.from = h.from;
+            summary.to = h.to;
+            summary.date = h.date;
+            summary.seen = m.flags.count("\\seen") > 0;
+            try {
+                // Rubrikerna ska sluta med en tomrad, men vissa servrar (GreenMail) utelämnar den.
+                std::string raw = m.body;
+                while (!raw.empty() && (raw.back() == '\r' || raw.back() == '\n')) raw.pop_back();
+                raw += "\r\n\r\n" + bodies[m.uid];
+                // Innehållet är avklippt, men GMime tolkar det som hunnit komma med.
+                auto parsed = mime::parseMessage(raw);
+                summary.messageId = std::move(parsed.messageId);
+                summary.text = std::move(parsed.text);
+                summary.html = std::move(parsed.html);
+            } catch (const std::exception&) {
+                // Rubrikerna räcker om innehållet inte går att tolka.
+            }
+            out.push_back(std::move(summary));
+        }
+        return out;
+    });
+}
+
+NewMessages MailService::newMessages(long long accountId, const std::string& folder, std::uint32_t afterUid,
+                                     std::size_t limit) {
+    return withImap(accountId, [&](ImapClient& client, Session&) {
+        MailboxStatus status = client.status(folder);
+        NewMessages out;
+        out.uidValidity = status.uidValidity;
+        out.uidNext = status.uidNext;
+        if (status.uidNext <= afterUid + 1) return out;
+
+        client.select(folder);
+        // "n:*" ger alltid mappens sista meddelande, även när dess UID är lägre än n.
+        for (auto uid : client.uidSearch(ImapCommand("UID " + std::to_string(afterUid + 1) + ":*"), false)) {
+            if (uid > afterUid) out.uids.push_back(uid);
+        }
+        std::sort(out.uids.begin(), out.uids.end());
+        if (out.uids.size() > limit) out.uids.resize(limit);
+        return out;
+    });
+}
+
+bool MailService::moveByMessageId(long long accountId, const std::string& folder, const std::string& messageId,
+                                  const std::string& target) {
+    if (messageId.empty() || target.empty() || target == folder) throw BadRequest("Ogiltig flytt");
+    std::vector<std::uint32_t> moved;
+    withImap(accountId, [&](ImapClient& client, Session&) {
+        client.select(folder);
+        ImapCommand criteria("HEADER Message-ID ");
+        criteria.str(messageId);
+        moved = client.uidSearch(criteria, !isAscii(messageId));
+        if (!moved.empty()) client.uidMove(ImapClient::uidSetFrom(moved), target);
+    });
+    if (cache_ && !moved.empty()) cache_->messagesRemoved(accountId, folder, moved, target);
+    return !moved.empty();
+}
+
+// Ett meddelande som öppnats nyligen ligger på disk och kräver ingen kontakt med mejlservern.
+std::string MailService::rawMessageCached(long long accountId, const MessageRef& ref) {
+    if (auto cached = rawCache_.get(accountId, ref.folder, ref.uid)) return *cached;
+    return withImap(accountId, [&](ImapClient& client, Session&) { return rawMessage(accountId, client, ref); });
 }
 
 mime::Attachment MailService::getAttachment(long long accountId, const MessageRef& ref, int index) {
-    return withImap(accountId, [&](ImapClient& client, Session& s) {
-        auto msg = mime::parseMessage(rawMessage(client, s, ref));
-        if (index < 0 || static_cast<std::size_t>(index) >= msg.attachments.size()) {
-            throw NotFound("Bilagan finns inte");
-        }
-        return std::move(msg.attachments[static_cast<std::size_t>(index)]);
-    });
+    auto msg = mime::parseMessage(rawMessageCached(accountId, ref));
+    if (index < 0 || static_cast<std::size_t>(index) >= msg.attachments.size()) {
+        throw NotFound("Bilagan finns inte");
+    }
+    return std::move(msg.attachments[static_cast<std::size_t>(index)]);
 }
 
 std::string MailService::getSource(long long accountId, const MessageRef& ref) {
-    return withImap(accountId, [&](ImapClient& client, Session& s) { return rawMessage(client, s, ref); });
+    return rawMessageCached(accountId, ref);
 }
 
 void MailService::setFlags(long long accountId, const std::string& folder, const std::vector<std::uint32_t>& uids,
@@ -398,6 +570,7 @@ void MailService::setFlags(long long accountId, const std::string& folder, const
         if (!addFlags.empty()) client.uidStore(set, "+FLAGS.SILENT", addFlags);
         if (!removeFlags.empty()) client.uidStore(set, "-FLAGS.SILENT", removeFlags);
     });
+    if (cache_) cache_->flagsChanged(accountId, folder, uids, add, remove);
 }
 
 void MailService::moveMessages(long long accountId, const std::string& folder,
@@ -408,23 +581,27 @@ void MailService::moveMessages(long long accountId, const std::string& folder,
         client.select(folder);
         client.uidMove(ImapClient::uidSetFrom(uids), target);
     });
+    if (cache_) cache_->messagesRemoved(accountId, folder, uids, target);
 }
 
 void MailService::deleteMessages(long long accountId, const std::string& folder,
                                  const std::vector<std::uint32_t>& uids) {
     if (uids.empty()) return;
+    std::string movedTo;
     withImap(accountId, [&](ImapClient& client, Session& s) {
         auto trash = specialFolder(client, s, "trash");
         client.select(folder);
         std::string set = ImapClient::uidSetFrom(uids);
         if (trash && *trash != folder) {
             client.uidMove(set, *trash);
+            movedTo = *trash;
         } else {
             // I papperskorgen (eller om den saknas) raderas meddelandena permanent.
             client.uidStore(set, "+FLAGS.SILENT", "\\Deleted");
             client.expungeUids(set);
         }
     });
+    if (cache_) cache_->messagesRemoved(accountId, folder, uids, movedTo);
 }
 
 Account MailService::applySender(const Account& acc, mime::OutgoingMessage& message, const SendOptions& options) {
@@ -455,7 +632,7 @@ json MailService::send(long long accountId, mime::OutgoingMessage message, const
 
     if (options.forwardOf) {
         withImap(accountId, [&](ImapClient& client, Session& s) {
-            auto original = mime::parseMessage(rawMessage(client, s, *options.forwardOf));
+            auto original = mime::parseMessage(rawMessage(accountId, client, *options.forwardOf));
             for (auto& a : original.attachments) {
                 if (a.inlineInHtml) continue;
                 message.attachments.push_back({a.filename, a.contentType, std::move(a.data)});
@@ -473,6 +650,7 @@ json MailService::send(long long accountId, mime::OutgoingMessage message, const
             if (auto sent = specialFolder(client, s, "sent")) {
                 try {
                     client.append(*sent, "\\Seen", built.data);
+                    if (cache_) cache_->folderTouched(accountId, *sent);
                 } catch (const MailServerError& e) {
                     warnings.push_back(std::string("Kunde inte spara i Skickat: ") + e.what());
                 }
@@ -482,12 +660,14 @@ json MailService::send(long long accountId, mime::OutgoingMessage message, const
             if (options.replyTo) {
                 client.select(options.replyTo->folder);
                 client.uidStore(std::to_string(options.replyTo->uid), "+FLAGS.SILENT", "\\Answered");
+                if (cache_) cache_->flagsChanged(accountId, options.replyTo->folder, {options.replyTo->uid}, {"answered"}, {});
             }
             if (options.draft) {
                 client.select(options.draft->folder);
                 std::string uid = std::to_string(options.draft->uid);
                 client.uidStore(uid, "+FLAGS.SILENT", "\\Deleted");
                 client.expungeUids(uid);
+                if (cache_) cache_->messagesRemoved(accountId, options.draft->folder, {options.draft->uid}, "");
             }
         });
     } catch (const std::exception& e) {
@@ -506,15 +686,18 @@ json MailService::saveDraft(long long accountId, mime::OutgoingMessage message, 
         if (!drafts) {
             client.createFolder("Drafts");
             s.specialResolved = false;
+            if (cache_) cache_->foldersChanged(accountId);
             drafts = "Drafts";
         }
         auto uid = client.append(*drafts, "\\Draft \\Seen", built.data);
+        if (cache_) cache_->folderTouched(accountId, *drafts);
         if (options.draft) {
             try {
                 client.select(options.draft->folder);
                 std::string old = std::to_string(options.draft->uid);
                 client.uidStore(old, "+FLAGS.SILENT", "\\Deleted");
                 client.expungeUids(old);
+                if (cache_) cache_->messagesRemoved(accountId, options.draft->folder, {options.draft->uid}, "");
             } catch (const MailServerError& e) {
                 std::cerr << "[drafts] kunde inte ta bort gammalt utkast: " << e.what() << "\n";
             }

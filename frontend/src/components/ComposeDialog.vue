@@ -1,9 +1,11 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import { useMailStore } from '../store'
 import { formatSize } from '../utils'
+import { SIGNATURE_CLASS, signatureHtml, textToHtml } from '../richtext'
 import Icon from './Icon.vue'
+import RichEditor from './RichEditor.vue'
 
 const store = useMailStore()
 const draft = store.compose
@@ -16,6 +18,23 @@ const form = reactive({
   subject: draft.subject,
   text: draft.text,
 })
+const MODE_KEY = 'brevduva.composeMode'
+
+function savedMode() {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'text' ? 'text' : 'html'
+  } catch {
+    return 'html'
+  }
+}
+
+// 'html' = formaterad text i RichEditor, 'text' = ren text i textrutan.
+const mode = ref(draft.preferText ? 'text' : savedMode())
+const editor = ref(null)
+const editorHtml = ref(draft.html) // Startinnehåll för redigeraren; den äger sedan innehållet själv.
+const editorKey = ref(0)
+const htmlDirty = ref(false)
+
 const files = ref([])
 const showCc = ref(!!draft.cc)
 const showBcc = ref(!!draft.bcc)
@@ -33,6 +52,15 @@ const accountId = computed(() => sender.value.accountId)
 watch(
   () => form.senderKey,
   (next, previous) => {
+    if (mode.value === 'html') {
+      const html = signatureHtml(store.senderByKey(next))
+      if (html === signatureHtml(store.senderByKey(previous))) return
+      const root = editor.value.element()
+      const existing = root.querySelector(`.${SIGNATURE_CLASS}`)
+      if (existing) existing.outerHTML = html
+      else root.insertAdjacentHTML('beforeend', html)
+      return
+    }
     const oldSig = store.signatureFor(store.senderByKey(previous))
     const newSig = store.signatureFor(store.senderByKey(next))
     if (oldSig === newSig) return
@@ -46,11 +74,33 @@ const bodyInput = ref(null)
 const fileInput = ref(null)
 
 const title = computed(() => form.subject || 'Nytt meddelande')
-const dirty = computed(() => JSON.stringify(form) !== initial || files.value.length > 0)
+const dirty = computed(() => JSON.stringify(form) !== initial || htmlDirty.value || files.value.length > 0)
+
+async function toggleMode() {
+  if (mode.value === 'html') {
+    const formatted = editor.value.element().querySelector('b, i, u, s, strong, em, font, span[style], h1, h2, h3, ul, ol, img, a, pre, hr, table')
+    if (formatted && !window.confirm('Byta till ren text? Formatering och infogade bilder försvinner.')) return
+    form.text = editor.value.getText()
+    mode.value = 'text'
+  } else {
+    editorHtml.value = textToHtml(form.text)
+    editorKey.value++
+    mode.value = 'html'
+    await nextTick()
+    editor.value?.focus()
+  }
+  try {
+    localStorage.setItem(MODE_KEY, mode.value)
+  } catch {
+    // Ignoreras; valet gäller bara det här meddelandet.
+  }
+}
 
 onMounted(() => {
   // Vid svar hamnar markören överst i brödtexten; annars i mottagarfältet.
-  if (form.to && bodyInput.value) {
+  if (form.to && mode.value === 'html') {
+    editor.value?.focus()
+  } else if (form.to && bodyInput.value) {
     bodyInput.value.focus()
     bodyInput.value.setSelectionRange(0, 0)
   } else {
@@ -68,7 +118,9 @@ function payload() {
     cc: form.cc,
     bcc: form.bcc,
     subject: form.subject,
-    text: form.text,
+    // Ett formaterat meddelande skickas med både HTML och en textversion för mottagare som läser ren text.
+    text: mode.value === 'html' ? editor.value.getText() : form.text,
+    html: mode.value === 'html' ? editor.value.getHtml() : '',
     inReplyTo: draft.inReplyTo,
     references: draft.references,
     replyTo: sameAccount ? draft.replyTo : null,
@@ -162,6 +214,14 @@ function onKeydown(event) {
         </button>
         <button class="btn" :disabled="busy" title="Spara utkast (Ctrl+S)" @click="saveDraft">Spara utkast</button>
         <button class="btn" :disabled="busy" @click="fileInput.click()"><Icon name="paperclip" /> Bifoga</button>
+        <button
+          class="btn mode"
+          :class="{ active: mode === 'html' }"
+          :title="mode === 'html' ? 'Formaterad text är på. Klicka för att skriva i ren text.' : 'Skriv med formatering: fetstil, listor, färger, länkar och bilder'"
+          @click="toggleMode"
+        >
+          <Icon name="textFormat" /> Formatering
+        </button>
         <input ref="fileInput" type="file" multiple hidden @change="addFiles($event.target.files); $event.target.value = ''" />
       </div>
 
@@ -200,7 +260,15 @@ function onKeydown(event) {
         <input v-model="form.subject" class="input" type="text" />
       </div>
 
-      <textarea ref="bodyInput" v-model="form.text" class="body" spellcheck="true" />
+      <RichEditor
+        v-if="mode === 'html'"
+        ref="editor"
+        :key="editorKey"
+        :initial-html="editorHtml"
+        @change="htmlDirty = true"
+        @error="error = $event"
+      />
+      <textarea v-else ref="bodyInput" v-model="form.text" class="body" spellcheck="true" />
 
       <div v-if="files.length || draft.forwardedAttachments.length" class="attachments">
         <span v-for="a in draft.forwardedAttachments" :key="'fwd' + a.index" class="chip" title="Följer med från originalmeddelandet">
@@ -233,6 +301,15 @@ function onKeydown(event) {
   gap: 6px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+.mode {
+  margin-left: auto;
+}
+
+.mode.active {
+  background: var(--selection-inactive);
+  border-color: var(--accent);
 }
 
 .fields {

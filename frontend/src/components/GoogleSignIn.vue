@@ -6,6 +6,8 @@ const props = defineProps({
   loginHint: { type: String, default: '' },
   label: { type: String, default: 'Logga in med Google' },
   disabled: { type: Boolean, default: false },
+  // Funktion som startar inloggningen; standard är inloggning för e-post.
+  start: { type: Function, default: undefined },
 })
 const emit = defineEmits(['signed-in'])
 
@@ -16,7 +18,7 @@ let current = null
 async function start() {
   error.value = ''
   signingIn.value = true
-  current = signInWithGoogle(props.loginHint)
+  current = signInWithGoogle(props.loginHint, props.start)
   try {
     emit('signed-in', await current.promise)
   } catch (e) {

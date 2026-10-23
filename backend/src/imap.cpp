@@ -148,6 +148,8 @@ private:
             if (bracketDepth == 0 && (c == ' ' || c == '(' || c == ')' || c == '\r' || c == '\n')) {
                 break;
             }
+            // Vissa servrar (GreenMail) utelämnar mellanslaget mellan BODY[…]<0> och literalen som följer.
+            if (bracketDepth == 0 && c == '{' && !v.text.empty() && v.text.back() == '>') break;
             if (c == '[') ++bracketDepth;
             if (c == ']' && bracketDepth > 0) --bracketDepth;
             v.text += c;
@@ -434,7 +436,7 @@ std::vector<FolderInfo> ImapClient::listFolders(bool withStatus) {
         std::string tag = nextTag();
         byTag[tag] = i;
         tags.push_back(tag);
-        batch += tag + " STATUS " + quote(utf8ToMutf7(folders[i].path)) + " (MESSAGES UNSEEN)\r\n";
+        batch += tag + " STATUS " + quote(utf8ToMutf7(folders[i].path)) + " (MESSAGES UNSEEN UIDNEXT UIDVALIDITY)\r\n";
     }
     if (!tags.empty()) {
         conn_.write(batch);
@@ -456,6 +458,8 @@ std::vector<FolderInfo> ImapClient::listFolders(bool withStatus) {
                         std::uint32_t val = static_cast<std::uint32_t>(std::stoul(items[k + 1].text));
                         if (key == "MESSAGES") folders[it->second].total = val;
                         if (key == "UNSEEN") folders[it->second].unread = val;
+                        if (key == "UIDNEXT") folders[it->second].uidNext = val;
+                        if (key == "UIDVALIDITY") folders[it->second].uidValidity = val;
                     }
                 }
             } else {
@@ -467,8 +471,33 @@ std::vector<FolderInfo> ImapClient::listFolders(bool withStatus) {
     return folders;
 }
 
+MailboxStatus ImapClient::status(const std::string& folder) {
+    auto resp = execOk(ImapCommand("STATUS ").mailbox(folder).raw(" (UIDVALIDITY UIDNEXT)"));
+    MailboxStatus out;
+    for (const auto& unit : resp.untagged) {
+        auto values = valuesAfterKeyword(unit, "STATUS", false);
+        if (values.size() < 2 || !values[1].isList()) continue;
+        const auto& items = values[1].list;
+        for (std::size_t k = 0; k + 1 < items.size(); k += 2) {
+            std::string key = toUpper(items[k].text);
+            std::uint32_t val = static_cast<std::uint32_t>(std::stoul(items[k + 1].text));
+            if (key == "UIDVALIDITY") out.uidValidity = val;
+            if (key == "UIDNEXT") out.uidNext = val;
+        }
+    }
+    return out;
+}
+
 std::uint32_t ImapClient::select(const std::string& folder) {
-    auto resp = exec(ImapCommand("SELECT ").mailbox(folder));
+    return open("SELECT ", folder);
+}
+
+std::uint32_t ImapClient::examine(const std::string& folder) {
+    return open("EXAMINE ", folder);
+}
+
+std::uint32_t ImapClient::open(const char* command, const std::string& folder) {
+    auto resp = exec(ImapCommand(command).mailbox(folder));
     if (resp.status != "OK") {
         selected_.reset();
         throw MailServerError("Kunde inte öppna mappen " + folder + ": " + resp.text);
@@ -494,6 +523,24 @@ std::vector<std::uint32_t> ImapClient::uidSearch(const ImapCommand& criteria, bo
     std::vector<std::uint32_t> uids;
     for (const auto& unit : resp.untagged) {
         for (const auto& v : valuesAfterKeyword(unit, "SEARCH", false)) {
+            if (!v.text.empty() && std::all_of(v.text.begin(), v.text.end(), ::isdigit)) {
+                uids.push_back(static_cast<std::uint32_t>(std::stoul(v.text)));
+            }
+        }
+    }
+    return uids;
+}
+
+std::vector<std::uint32_t> ImapClient::uidSort(const std::string& sortKeys, const ImapCommand& criteria, bool utf8) {
+    ImapCommand cmd("UID SORT (" + sortKeys + ") " + (utf8 ? "UTF-8 " : "US-ASCII "));
+    for (const auto& seg : criteria.segments()) {
+        if (seg.literal) cmd.literal(seg.text);
+        else cmd.raw(seg.text);
+    }
+    auto resp = execOk(cmd);
+    std::vector<std::uint32_t> uids;
+    for (const auto& unit : resp.untagged) {
+        for (const auto& v : valuesAfterKeyword(unit, "SORT", false)) {
             if (!v.text.empty() && std::all_of(v.text.begin(), v.text.end(), ::isdigit)) {
                 uids.push_back(static_cast<std::uint32_t>(std::stoul(v.text)));
             }
@@ -553,10 +600,11 @@ void ImapClient::expungeUids(const std::string& uidSet) {
 }
 
 std::optional<std::uint32_t> ImapClient::append(const std::string& folder, const std::string& flags,
-                                                const std::string& message) {
+                                                const std::string& message, const std::string& internalDate) {
     ImapCommand cmd("APPEND ");
     cmd.mailbox(folder);
     if (!flags.empty()) cmd.raw(" (" + flags + ")");
+    if (!internalDate.empty()) cmd.raw(" " + quote(internalDate));
     cmd.raw(" ").literal(message);
 
     auto resp = execOk(cmd);

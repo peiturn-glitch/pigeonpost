@@ -1,5 +1,6 @@
-// Låtsas-Google för test: OAuth 2.0 (auth, token, revoke) och en IMAP-server med SASL XOAUTH2
-// som efter godkänd token vidarebefordrar anslutningen till GreenMail.
+// Låtsas-Google för test: OAuth 2.0 (auth, token, revoke), en IMAP-server med SASL XOAUTH2
+// som efter godkänd token vidarebefordrar anslutningen till GreenMail, och ett litet Google Drive API
+// (filer, mappar och återupptagbar uppladdning) för backup.
 import http from 'node:http'
 import net from 'node:net'
 import crypto from 'node:crypto'
@@ -12,8 +13,14 @@ const UPSTREAM = { host: process.env.UPSTREAM_HOST || 'mailserver', port: Number
 const codes = new Map() // code -> { challenge, redirectUri, email, used }
 const accessTokens = new Map() // token -> { email, expires }
 const refreshTokens = new Map() // token -> { email, revoked }
-const stats = { authRequests: 0, codeExchanges: 0, refreshes: 0, revokes: 0, imapAuthOk: 0, imapAuthFailed: 0, saslIr: 0, pkceFailures: 0 }
+const stats = { authRequests: 0, codeExchanges: 0, refreshes: 0, revokes: 0, imapAuthOk: 0, imapAuthFailed: 0, saslIr: 0, pkceFailures: 0, driveChunks: 0, driveChunkFailures: 0, driveResumes: 0 }
 let failNextImapAuth = false
+
+const MAIL_SCOPE = 'https://mail.google.com/'
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
+const driveFiles = new Map() // id -> { id, name, mimeType, parents, appProperties, createdTime, trashed, size, sha256, owner, data }
+const uploadSessions = new Map() // id -> { meta, total, received: Buffer[], length, owner }
+let failDriveChunks = 0
 
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 const random = () => b64url(crypto.randomBytes(24))
@@ -48,7 +55,8 @@ http
       if (q.get('client_id') !== CLIENT_ID) problems.push('client_id')
       if (q.get('response_type') !== 'code') problems.push('response_type')
       if (q.get('code_challenge_method') !== 'S256' || !q.get('code_challenge')) problems.push('pkce')
-      if (!(q.get('scope') || '').split(' ').includes('https://mail.google.com/')) problems.push('scope')
+      const scopes = (q.get('scope') || '').split(' ')
+      if (!scopes.includes(MAIL_SCOPE) && !scopes.includes(DRIVE_SCOPE)) problems.push('scope')
       if (q.get('access_type') !== 'offline') problems.push('access_type')
       if (problems.length) return json(res, 400, { error: 'invalid_request', problems })
 
@@ -59,7 +67,9 @@ http
         redirect.searchParams.set('error', 'access_denied')
       } else {
         const code = '4/' + random()
-        codes.set(code, { challenge: q.get('code_challenge'), redirectUri: q.get('redirect_uri'), email, used: false })
+        // En inloggning som börjar med "nodrive" motsvarar att användaren avmarkerar Drive på samtyckesskärmen.
+        const granted = scopes.filter((scope) => !(email.startsWith('nodrive') && scope === DRIVE_SCOPE))
+        codes.set(code, { challenge: q.get('code_challenge'), redirectUri: q.get('redirect_uri'), email, used: false, scope: granted.join(' ') })
         redirect.searchParams.set('code', code)
       }
       res.writeHead(302, { Location: redirect.toString() })
@@ -90,7 +100,7 @@ http
           b64url(JSON.stringify({ iss: 'https://accounts.google.com', email: entry.email, email_verified: true, name: 'OAuth Testare' })),
           'signatur',
         ].join('.')
-        return json(res, 200, { access_token: issueAccess(entry.email), expires_in: ACCESS_TTL, refresh_token: refresh, id_token: idToken, token_type: 'Bearer' })
+        return json(res, 200, { access_token: issueAccess(entry.email), expires_in: ACCESS_TTL, refresh_token: refresh, id_token: idToken, token_type: 'Bearer', scope: entry.scope })
       }
       if (body.get('grant_type') === 'refresh_token') {
         const entry = refreshTokens.get(body.get('refresh_token'))
@@ -111,7 +121,22 @@ http
       return json(res, 200, {})
     }
 
+    if (url.pathname.startsWith('/drive/') || url.pathname.startsWith('/upload/')) return drive(req, res, url)
+
     // Styrning för testerna.
+    if (url.pathname === '/control/drive') {
+      return json(res, 200, [...driveFiles.values()].map(({ data, ...f }) => f))
+    }
+    if (url.pathname.startsWith('/control/drive/content/')) {
+      const file = driveFiles.get(url.pathname.split('/').pop())
+      if (!file) return json(res, 404, {})
+      res.writeHead(200, { 'Content-Type': 'application/zip' })
+      return res.end(file.data)
+    }
+    if (url.pathname === '/control/drive/fail-chunks') {
+      failDriveChunks = Number(q.get('count') || 1)
+      return json(res, 200, { ok: true })
+    }
     if (url.pathname === '/control/stats') return json(res, 200, { ...stats, ACCESS_TTL })
     if (url.pathname === '/control/revoke-all') {
       for (const entry of refreshTokens.values()) entry.revoked = true
@@ -124,6 +149,144 @@ http
     json(res, 404, { error: 'not_found' })
   })
   .listen(9999, () => console.log('OAuth-mock på :9999'))
+
+// --- Google Drive API v3 (det som backupen använder) ---------------------------
+
+function readRaw(req) {
+  return new Promise((resolve) => {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+  })
+}
+
+function driveError(res, status, reason, message) {
+  json(res, status, { error: { code: status, message, errors: [{ reason, message }] } })
+}
+
+// Delar av Drives frågespråk: name, mimeType, trashed, 'id' in parents och appProperties has { key and value }.
+function matchesQuery(file, q) {
+  if (!q) return true
+  const str = (v) => v.replace(/\\(.)/g, '$1')
+  const checks = []
+  for (const m of q.matchAll(/name = '((?:[^'\\]|\\.)*)'/g)) checks.push(file.name === str(m[1]))
+  for (const m of q.matchAll(/mimeType = '((?:[^'\\]|\\.)*)'/g)) checks.push(file.mimeType === str(m[1]))
+  if (/trashed = false/.test(q)) checks.push(!file.trashed)
+  for (const m of q.matchAll(/'((?:[^'\\]|\\.)*)' in parents/g)) checks.push(file.parents.includes(str(m[1])))
+  for (const m of q.matchAll(/appProperties has \{ key='((?:[^'\\]|\\.)*)' and value='((?:[^'\\]|\\.)*)' \}/g)) {
+    checks.push(file.appProperties?.[str(m[1])] === str(m[2]))
+  }
+  return checks.every(Boolean)
+}
+
+function publicFile(f) {
+  return { id: f.id, name: f.name, mimeType: f.mimeType, createdTime: f.createdTime, trashed: f.trashed, size: String(f.size) }
+}
+
+async function drive(req, res, url) {
+  const auth = /^Bearer (.+)$/.exec(req.headers.authorization || '')
+  const token = auth && accessTokens.get(auth[1])
+  if (!token || token.expires < Date.now()) return driveError(res, 401, 'authError', 'Invalid Credentials')
+  const owner = token.email
+  const own = (f) => f && f.owner === owner
+
+  const fileMatch = /^\/drive\/v3\/files\/([^/]+)$/.exec(url.pathname)
+  if (url.pathname === '/drive/v3/files' && req.method === 'GET') {
+    let files = [...driveFiles.values()].filter((f) => own(f) && matchesQuery(f, url.searchParams.get('q')))
+    if ((url.searchParams.get('orderBy') || '').startsWith('createdTime desc')) {
+      files.sort((a, b) => (a.createdTime < b.createdTime ? 1 : a.createdTime > b.createdTime ? -1 : b.seq - a.seq))
+    }
+    return json(res, 200, { files: files.map(publicFile) })
+  }
+  if (url.pathname === '/drive/v3/files' && req.method === 'POST') {
+    const meta = JSON.parse((await readRaw(req)).toString() || '{}')
+    const file = createFile(meta, Buffer.alloc(0), owner)
+    return json(res, 200, publicFile(file))
+  }
+  if (fileMatch && req.method === 'GET') {
+    const file = driveFiles.get(fileMatch[1])
+    if (!own(file)) return driveError(res, 404, 'notFound', 'File not found')
+    return json(res, 200, publicFile(file))
+  }
+  if (fileMatch && req.method === 'DELETE') {
+    const file = driveFiles.get(fileMatch[1])
+    if (!own(file)) return driveError(res, 404, 'notFound', 'File not found')
+    driveFiles.delete(file.id)
+    res.writeHead(204)
+    return res.end()
+  }
+  if (url.pathname === '/upload/drive/v3/files' && req.method === 'POST' && url.searchParams.get('uploadType') === 'resumable') {
+    const meta = JSON.parse((await readRaw(req)).toString() || '{}')
+    if (meta.parents?.some((p) => !own(driveFiles.get(p)))) return driveError(res, 404, 'notFound', 'Parent not found')
+    const id = random()
+    uploadSessions.set(id, { meta, total: Number(req.headers['x-upload-content-length']), chunks: [], length: 0, owner })
+    res.writeHead(200, { Location: `http://${req.headers.host}/upload/session/${id}` })
+    return res.end()
+  }
+  const sessionMatch = /^\/upload\/session\/([^/]+)$/.exec(url.pathname)
+  if (sessionMatch && req.method === 'PUT') {
+    const session = uploadSessions.get(sessionMatch[1])
+    const body = await readRaw(req)
+    if (!session || session.owner !== owner) return driveError(res, 404, 'notFound', 'Upload session not found')
+    const range = req.headers['content-range'] || ''
+    const status = /^bytes \*\/(\d+)$/.exec(range)
+    const ack = () => {
+      if (session.length === session.total) {
+        const file = createFile(session.meta, Buffer.concat(session.chunks), owner)
+        uploadSessions.delete(sessionMatch[1])
+        return json(res, 200, publicFile(file))
+      }
+      res.writeHead(308, session.length ? { Range: `bytes=0-${session.length - 1}` } : {})
+      return res.end()
+    }
+    if (status) {
+      stats.driveResumes++
+      return ack()
+    }
+    const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(range)
+    if (!m || Number(m[2]) - Number(m[1]) + 1 !== body.length) return driveError(res, 400, 'badRequest', 'Bad Content-Range')
+    const start = Number(m[1])
+    const last = Number(m[2]) + 1 === session.total
+    if (!last && body.length % (256 * 1024) !== 0) return driveError(res, 400, 'badRequest', 'Chunk not multiple of 256 KiB')
+    if (failDriveChunks > 0) {
+      // Ta emot halva biten och svara med ett tillfälligt fel, som vid ett avbrott.
+      failDriveChunks--
+      stats.driveChunkFailures++
+      if (start === session.length) {
+        const half = body.subarray(0, Math.floor(body.length / 2 / (256 * 1024)) * 256 * 1024)
+        session.chunks.push(half)
+        session.length += half.length
+      }
+      return driveError(res, 503, 'backendError', 'Backend Error')
+    }
+    if (start !== session.length) return driveError(res, 400, 'badRequest', `Expected offset ${session.length}`)
+    stats.driveChunks++
+    session.chunks.push(body)
+    session.length += body.length
+    return ack()
+  }
+  driveError(res, 404, 'notFound', 'Unknown Drive endpoint')
+}
+
+let fileSeq = 0
+function createFile(meta, data, owner) {
+  const file = {
+    id: 'f' + random().slice(0, 16),
+    seq: ++fileSeq,
+    name: meta.name,
+    mimeType: meta.mimeType || 'application/octet-stream',
+    parents: meta.parents || [],
+    appProperties: meta.appProperties || {},
+    createdTime: new Date().toISOString(),
+    trashed: false,
+    size: data.length,
+    sha256: crypto.createHash('sha256').update(data).digest('hex'),
+    owner,
+    data,
+  }
+  driveFiles.set(file.id, file)
+  return file
+}
 
 function imapServer(port, saslIr) {
   net

@@ -7,7 +7,9 @@
 
 namespace brevduva {
 
-// En TCP-anslutning som kan uppgraderas till TLS. Blockerande I/O med timeout.
+// En TCP-anslutning som kan uppgraderas till TLS. Blockerande I/O med timeout; själva
+// uppkopplingen har en egen, kortare tidsgräns så att en server som inte svarar på SYN
+// inte håller anropet i minuter.
 class Connection {
 public:
     Connection() = default;
@@ -15,8 +17,10 @@ public:
     Connection(const Connection&) = delete;
     Connection& operator=(const Connection&) = delete;
 
-    void connect(const std::string& host, int port, int timeoutSeconds = 30);
+    void connect(const std::string& host, int port, int timeoutSeconds = 30, int connectTimeoutSeconds = 15);
     void startTls(const std::string& host, bool verify);
+    // Tidsgräns i sekunder för varje enskild läsning och skrivning på en öppen anslutning.
+    void setTimeout(int seconds);
 
     // Läser en rad inklusive avslutande CRLF.
     std::string readLine();

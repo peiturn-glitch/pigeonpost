@@ -1,7 +1,9 @@
 #include "crypto.hpp"
 
+#include <openssl/bio.h>
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <openssl/rand.h>
 
 #include <cstdint>
@@ -69,6 +71,38 @@ std::string base64Decode(const std::string& text) {
     if (text.size() > 1 && text[text.size() - 2] == '=') ++padding;
     out.resize(static_cast<std::size_t>(n) - padding);
     return out;
+}
+
+std::string base64UrlEncode(const std::string& bytes) {
+    std::string s = base64Encode(bytes);
+    for (char& c : s) {
+        if (c == '+') c = '-';
+        else if (c == '/') c = '_';
+    }
+    while (!s.empty() && s.back() == '=') s.pop_back();
+    return s;
+}
+
+std::string rs256Sign(const std::string& pemPrivateKey, const std::string& data) {
+    std::unique_ptr<BIO, decltype(&BIO_free)> bio(
+        BIO_new_mem_buf(pemPrivateKey.data(), static_cast<int>(pemPrivateKey.size())), &BIO_free);
+    if (!bio) throw std::runtime_error("BIO_new_mem_buf misslyckades");
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key(PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr),
+                                                            &EVP_PKEY_free);
+    if (!key) throw std::runtime_error("Kunde inte läsa den privata nyckeln (PEM)");
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    if (!ctx || EVP_DigestSignInit(ctx.get(), nullptr, EVP_sha256(), nullptr, key.get()) != 1) {
+        throw std::runtime_error("EVP_DigestSignInit misslyckades");
+    }
+    const auto* in = reinterpret_cast<const unsigned char*>(data.data());
+    std::size_t len = 0;
+    if (EVP_DigestSign(ctx.get(), nullptr, &len, in, data.size()) != 1) throw std::runtime_error("EVP_DigestSign misslyckades");
+    std::string sig(len, '\0');
+    if (EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char*>(sig.data()), &len, in, data.size()) != 1) {
+        throw std::runtime_error("EVP_DigestSign misslyckades");
+    }
+    sig.resize(len);
+    return sig;
 }
 
 std::string sha256(const std::string& data) {

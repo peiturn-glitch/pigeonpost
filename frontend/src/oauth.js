@@ -6,7 +6,8 @@ const TIMEOUT_MS = 10 * 60 * 1000
 // Google stänger ofta kopplingen till window.opener (COOP), så callback-sidan meddelar via
 // BroadcastChannel och vi frågar dessutom servern regelbundet.
 // Returnerar { promise, cancel }. promise ger { state, email, name }.
-export function signInWithGoogle(loginHint = '') {
+// start väljer vilken inloggning som påbörjas, t.ex. för e-post eller för Google Drive.
+export function signInWithGoogle(loginHint = '', start = api.oauthStart) {
   // Fönstret måste öppnas direkt i klickhändelsen, annars stoppas det av popup-blockeraren.
   const popup = window.open('', 'brevduva-google-login', 'popup,width=520,height=680')
   let cancelled = false
@@ -17,7 +18,7 @@ export function signInWithGoogle(loginHint = '') {
   const promise = (async () => {
     let started
     try {
-      started = await api.oauthStart(loginHint)
+      started = await start(loginHint)
     } catch (e) {
       popup?.close()
       throw e

@@ -97,6 +97,48 @@ export const api = {
   remove: (accountId, folder, uids) =>
     request('POST', `/accounts/${accountId}/messages/delete`, { body: { folder, uids } }),
 
+  backup: () => request('GET', '/backup'),
+  startBackup: (config) => request('POST', '/backup/runs', { body: { config } }),
+  cancelBackupRun: (id) => request('POST', `/backup/runs/${id}/cancel`),
+  deleteBackupRun: (id) => request('DELETE', `/backup/runs/${id}`),
+  createBackupJob: (job) => request('POST', '/backup/jobs', { body: job }),
+  updateBackupJob: (id, job) => request('PUT', `/backup/jobs/${id}`, { body: job }),
+  deleteBackupJob: (id) => request('DELETE', `/backup/jobs/${id}`),
+  runBackupJob: (id) => request('POST', `/backup/jobs/${id}/run`),
+  driveOauthStart: (loginHint) => request('POST', '/backup/drive/start', { body: { loginHint } }),
+  addDriveConnection: (oauthState) => request('POST', '/backup/drive', { body: { oauthState } }),
+  deleteDriveConnection: (id) => request('DELETE', `/backup/drive/${id}`),
+
+  cacheStatus: () => request('GET', '/cache'),
+  syncAccount: (accountId) => request('POST', `/accounts/${accountId}/sync`),
+
+  remoteSenders: () => request('GET', '/remote-senders'),
+  trustRemoteSender: (sender) => request('POST', '/remote-senders', { body: { sender } }),
+  untrustRemoteSender: (sender) => request('POST', '/remote-senders/delete', { body: { sender } }),
+
+  search: (query) => request('POST', '/search', { body: query }),
+  aiSearch: (question, today) => request('POST', '/ai/search', { body: { question, today } }),
+
+  ai: () => request('GET', '/ai'),
+  aiSave: (settings) => request('PUT', '/ai', { body: settings }),
+  aiRemove: () => request('DELETE', '/ai'),
+  aiTest: (settings) => request('POST', '/ai/test', { body: settings }),
+  aiAuto: () => request('GET', '/ai/auto'),
+  aiAutoSave: (accountId, rule) => request('PUT', `/accounts/${accountId}/ai-auto`, { body: rule }),
+  aiUndo: (logId) => request('POST', `/ai/log/${logId}/undo`),
+  aiSortTargets: (accountId, excluded) => request('PUT', `/accounts/${accountId}/ai-sort-targets`, { body: { excluded } }),
+  aiSortCursor: (accountId, cursor) => request('PUT', `/accounts/${accountId}/ai-sort-cursor`, { body: cursor }),
+  aiLearning: () => request('GET', '/ai/learning'),
+  aiFeedback: (accountId, folder, decisions) => request('POST', `/accounts/${accountId}/ai-feedback`, { body: { folder, decisions } }),
+  aiRuleSave: (accountId, rule) => request('POST', `/accounts/${accountId}/ai-rules`, { body: rule }),
+  aiRuleDelete: (ruleId) => request('DELETE', `/ai/rules/${ruleId}`),
+  aiExampleDelete: (exampleId) => request('DELETE', `/ai/examples/${exampleId}`),
+  aiExamplesClear: () => request('DELETE', '/ai/examples'),
+  aiJobs: () => request('GET', '/ai/jobs'),
+  aiJobStart: (accountId, job) => request('POST', `/accounts/${accountId}/ai-jobs`, { body: job }),
+  aiJobAction: (jobId, action) => request('POST', `/ai/jobs/${jobId}/${action}`),
+  aiSort: (accountId, body) => request('POST', `/accounts/${accountId}/ai-sort`, { body }),
+
   send: (accountId, message, files) =>
     request('POST', `/accounts/${accountId}/send`, { form: composeForm(message, files) }),
   saveDraft: (accountId, message, files) =>
@@ -108,6 +150,10 @@ export function attachmentUrl(accountId, folder, uid, index, download = true) {
 }
 
 export const thunderbirdExportUrl = '/api/export/thunderbird'
+
+export function backupDownloadUrl(runId) {
+  return `/api/backup/runs/${runId}/download`
+}
 
 export function sourceUrl(accountId, folder, uid) {
   return buildUrl(`/accounts/${accountId}/source`, { folder, uid })

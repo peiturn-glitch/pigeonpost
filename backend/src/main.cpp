@@ -1,11 +1,16 @@
+#include "ai_sort.hpp"
 #include "api.hpp"
 #include "auth.hpp"
+#include "backup.hpp"
 #include "config.hpp"
 #include "crypto.hpp"
 #include "db.hpp"
+#include "mail_cache.hpp"
 #include "mail_service.hpp"
 #include "mime.hpp"
 #include "oauth.hpp"
+#include "push.hpp"
+#include "text_util.hpp"
 
 #include <curl/curl.h>
 #include <httplib.h>
@@ -16,17 +21,6 @@
 #include <iostream>
 #include <sstream>
 #include <thread>
-
-// Appen hette tidigare ThunderbirdKlon. Flytta en befintlig databas (med WAL-filer) till det nya namnet.
-void migrateLegacyDatabaseName(const std::filesystem::path& dbPath) {
-    std::filesystem::path legacy = dbPath.parent_path() / "thunderbirdklon.db";
-    if (std::filesystem::exists(dbPath) || !std::filesystem::exists(legacy)) return;
-    for (const char* suffix : {"", "-wal", "-shm"}) {
-        std::filesystem::path from = legacy.string() + suffix;
-        if (std::filesystem::exists(from)) std::filesystem::rename(from, dbPath.string() + suffix);
-    }
-    std::cout << "[main] Flyttade databasen " << legacy << " till " << dbPath << std::endl;
-}
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--healthcheck") {
@@ -50,12 +44,21 @@ int main(int argc, char** argv) {
         brevduva::mime::init();
         curl_global_init(CURL_GLOBAL_DEFAULT);
 
-        std::filesystem::path dbPath = std::filesystem::path(config.dataDir) / "brevduva.db";
-        migrateLegacyDatabaseName(dbPath);
-        brevduva::Database db(dbPath.string(), config.encryptionKey);
+        brevduva::Database db(config);
         brevduva::Auth auth(db);
         brevduva::GoogleOAuth oauth(config);
-        brevduva::MailService mail(db, oauth);
+        brevduva::RawCache rawCache(config.rawCacheDir, static_cast<std::uint64_t>(config.rawCacheMb) * 1024 * 1024);
+        brevduva::MailService mail(db, oauth, rawCache);
+        brevduva::PushService push(config, db);
+        brevduva::MailCache mailCache(config, db, mail, rawCache, push.configured() ? &push : nullptr);
+        if (config.mailCache) mail.setCache(&mailCache);
+        std::cout << "[main] Mejlcache: " << (config.mailCache ? "på" : "avstängd (MAIL_CACHE=0)") << std::endl;
+        std::cout << "[main] Push till Android-appen: "
+                  << (push.configured() ? "aktiverad (Firebase-projekt " + push.projectId() + ")"
+                                        : "inte konfigurerad (FCM_SERVICE_ACCOUNT_FILE)")
+                  << std::endl;
+        brevduva::BackupService backup(config, db, mail, oauth);
+        brevduva::AiSorter aiSorter(config, db, mail);
         std::cout << "[main] Google-inloggning för Gmail: " << (oauth.configured() ? "aktiverad" : "inte konfigurerad")
                   << std::endl;
 
@@ -86,11 +89,65 @@ int main(int argc, char** argv) {
             {"X-Frame-Options", "DENY"},
         });
 
-        brevduva::registerApi(server, db, auth, mail, oauth);
+        brevduva::registerApi(server, db, auth, mail, oauth, backup, aiSorter, config.mailCache ? &mailCache : nullptr,
+                              push.configured() ? &push : nullptr);
+        backup.start();
+        aiSorter.start();
+        push.start();
+        if (config.mailCache) mailCache.start();
+
+        // APK och version.json för Android-appen, från en katalog utanför webbygget (BREVDUVA_ANDROID_DIR).
+        server.set_file_extension_and_mimetype_mapping("apk", "application/vnd.android.package-archive");
+        if (std::filesystem::is_directory(config.androidDir)) {
+            server.set_mount_point("/android", config.androidDir, {{"Cache-Control", "no-cache"}});
+            // Filer serveras före handlers; en fil som saknas ska ge 404 och inte index.html från SPA-fallbacken nedan.
+            server.Get(R"(^/android/.*)", [](const httplib::Request&, httplib::Response& res) { res.status = 404; });
+            std::cout << "[main] Android-appen serveras från " << config.androidDir << " under /android" << std::endl;
+        } else {
+            std::cout << "[main] Ingen Android-katalog (" << config.androidDir << "); /android är avstängd" << std::endl;
+        }
 
         // Statiska filer från Vue-bygget, och index.html för alla övriga sökvägar (SPA-routing).
         if (std::filesystem::exists(config.staticDir)) {
             server.set_mount_point("/", config.staticDir);
+            // Integritetspolicy och användarvillkor: mallar med {{SERVICE_URL}}, {{OPERATOR_NAME}} och
+            // {{OPERATOR_CONTACT_HTML}} som fylls i från miljön. En egen privacy.html/terms.html i den statiska
+            // katalogen (t.ex. monterad i containern) serveras i stället, eftersom filer går före handlers.
+            for (const char* page : {"privacy", "terms"}) {
+                std::string tmplPath = (std::filesystem::path(config.staticDir) / (std::string(page) + ".tmpl.html")).string();
+                server.Get("/" + std::string(page) + ".html", [tmplPath, &config](const httplib::Request& req, httplib::Response& res) {
+                    std::ifstream in(tmplPath, std::ios::binary);
+                    if (!in) {
+                        res.status = 404;
+                        return;
+                    }
+                    std::stringstream ss;
+                    ss << in.rdbuf();
+                    std::string html = ss.str();
+                    std::string url = config.publicUrl;
+                    if (url.empty()) {
+                        std::string host = req.get_header_value("X-Forwarded-Host");
+                        if (host.empty()) host = req.get_header_value("Host");
+                        std::string scheme = req.get_header_value("X-Forwarded-Proto");
+                        if (scheme.empty()) scheme = "http";
+                        url = host.empty() ? "" : scheme + "://" + host;
+                    }
+                    std::string contact = brevduva::textutil::htmlEscape(config.operatorContact);
+                    std::string contactHtml = contact.empty() ? "the operator of this service"
+                        : contact.find('@') != std::string::npos ? "<a href=\"mailto:" + contact + "\">" + contact + "</a>"
+                        : "<a href=\"" + contact + "\">" + contact + "</a>";
+                    auto replaceAll = [&html](const std::string& from, const std::string& to) {
+                        for (std::size_t pos = html.find(from); pos != std::string::npos; pos = html.find(from, pos + to.size())) {
+                            html.replace(pos, from.size(), to);
+                        }
+                    };
+                    replaceAll("{{SERVICE_URL}}", brevduva::textutil::htmlEscape(url));
+                    replaceAll("{{OPERATOR_NAME}}", brevduva::textutil::htmlEscape(config.operatorName));
+                    replaceAll("{{OPERATOR_CONTACT_HTML}}", contactHtml);
+                    res.set_header("Cache-Control", "no-cache");
+                    res.set_content(html, "text/html; charset=utf-8");
+                });
+            }
             std::string indexPath = (std::filesystem::path(config.staticDir) / "index.html").string();
             server.Get(R"(^/(?!api/).*)", [indexPath](const httplib::Request&, httplib::Response& res) {
                 std::ifstream in(indexPath, std::ios::binary);
@@ -121,11 +178,15 @@ int main(int argc, char** argv) {
         });
         signalThread.detach();
 
-        std::cout << "Brevduva lyssnar på http://" << config.host << ":" << config.port << std::endl;
+        std::cout << "PigeonPost lyssnar på http://" << config.host << ":" << config.port << std::endl;
         if (!server.listen(config.host, config.port)) {
             std::cerr << "Kunde inte lyssna på " << config.host << ":" << config.port << "\n";
             return 1;
         }
+        mailCache.stop();
+        push.stop();
+        aiSorter.stop();
+        backup.stop();
         curl_global_cleanup();
     } catch (const std::exception& e) {
         std::cerr << "Fel vid uppstart: " << e.what() << "\n";

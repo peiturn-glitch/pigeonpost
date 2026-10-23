@@ -27,12 +27,76 @@ export function displayName(address) {
   return address.name || address.email
 }
 
+// Sorteringar som listorna och sökningen kan begära av servern. Datum är standard, nyast först.
+export const SORT_KEYS = [
+  { key: 'date', label: 'Datum' },
+  { key: 'from', label: 'Avsändare' },
+  { key: 'to', label: 'Mottagare' },
+  { key: 'subject', label: 'Ämne' },
+  { key: 'size', label: 'Storlek' },
+]
+export const DEFAULT_SORT = { key: 'date', desc: true }
+
+export function isSortKey(key) {
+  return SORT_KEYS.some((s) => s.key === key)
+}
+
+// Ämnet utan svars- och vidarebefordringsprefix, som i serverns sortering.
+function sortableSubject(subject) {
+  return (subject || '').replace(/^(\s*(re|sv|fwd|fw|vb|aw|wg|tr)\s*(\[\d+\])?\s*:)+\s*/i, '').toLocaleLowerCase('sv')
+}
+
+// Samma ordning som servern ger, för listor som sätts ihop i webbläsaren (t.ex. när vyn över olästa uppdateras).
+export function messageComparator({ key, desc }) {
+  const collator = new Intl.Collator('sv')
+  const value = (m) => {
+    if (key === 'subject') return sortableSubject(m.subject)
+    if (key === 'from') return displayName(m.from?.[0]).toLocaleLowerCase('sv')
+    if (key === 'to') return displayName(m.to?.[0]).toLocaleLowerCase('sv')
+    if (key === 'size') return m.size || 0
+    return m.date || 0
+  }
+  const newestFirst = (a, b) => (b.date || 0) - (a.date || 0) || (b.uid || 0) - (a.uid || 0)
+  return (a, b) => {
+    const x = value(a)
+    const y = value(b)
+    let order = typeof x === 'number' ? x - y : collator.compare(x, y)
+    if (desc) order = -order
+    return order || (key === 'date' && !desc ? -newestFirst(a, b) : newestFirst(a, b))
+  }
+}
+
 // Formaterar en adress för ett adressfält, med citattecken när namnet innehåller specialtecken.
 export function formatAddress(address) {
   if (!address) return ''
   if (!address.name) return address.email
   const name = /[",;<>@()[\]\\:]/.test(address.name) ? `"${address.name.replace(/["\\]/g, '\\$&')}"` : address.name
   return `${name} <${address.email}>`
+}
+
+// Tolkar en lista med adresser: en per rad, eller åtskilda med komma eller semikolon.
+// Varje post kan vara "adress@exempel.se" eller "Namn <adress@exempel.se>".
+const plainAddress = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/
+const namedAddress = /^"?([^"<]*?)"?\s*<\s*([^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)\s*>$/
+
+export function parseAddresses(text) {
+  const addresses = []
+  const invalid = []
+  const seen = new Set()
+  for (const part of String(text || '').split(/[\n,;]+/)) {
+    const line = part.trim()
+    if (!line) continue
+    const named = namedAddress.exec(line)
+    const email = named ? named[2] : plainAddress.test(line) ? line : ''
+    if (!email) {
+      invalid.push(line)
+      continue
+    }
+    if (seen.has(email.toLowerCase())) continue
+    seen.add(email.toLowerCase())
+    addresses.push({ name: named ? named[1].trim() : '', email })
+  }
+  return { addresses, invalid }
 }
 
 export function formatAddressList(list) {
@@ -114,6 +178,7 @@ export const specialFolderNames = {
   trash: 'Papperskorg',
   all: 'Alla meddelanden',
   flagged: 'Stjärnmärkt',
+  important: 'Viktigt',
 }
 
 const specialOrder = ['inbox', 'drafts', 'sent', 'archive', 'junk', 'trash']
@@ -155,6 +220,11 @@ export function buildFolderTree(folders) {
   }
   sortNodes(root.children)
   return root.children
+}
+
+// Sant om path är mappen själv eller ligger under den.
+export function isInsideFolder(path, folder) {
+  return path === folder.path || (!!folder.delimiter && path.startsWith(folder.path + folder.delimiter))
 }
 
 export function folderLabel(folder) {
