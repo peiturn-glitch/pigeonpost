@@ -167,7 +167,7 @@ void MailCache::reportUnreachable(long long accountId, const std::string& error)
     {
         std::lock_guard lock(mutex_);
         auto& st = states_[accountId];
-        if (!st.offline) std::cerr << "[cache] konto " << accountId << ": " << error << "\n";
+        if (!st.offline) std::cerr << "[cache] account " << accountId << ": " << error << "\n";
         st.offline = true;
         st.error = error;
         st.reconnect = true;
@@ -231,12 +231,12 @@ json MailCache::search(const CacheSearchQuery& query) {
 }
 
 json MailCache::changes(long long accountId, std::int64_t since, int limit) {
-    if (since < 0) throw BadRequest("Ogiltigt värde för since");
+    if (since < 0) throw BadRequest("Invalid value for since");
     CacheSeq seq = db_.cacheSeq();
     // Märket ska ligga mellan den äldsta sparade gravstenen och det senast utdelade numret. Ett märke över det
     // senaste numret betyder att databasen har återställts från en säkerhetskopia.
     if (since > 0 && (since < seq.pruned || since > seq.value)) {
-        throw Gone("Synkmärket är för gammalt eller okänt; hämta om kontot");
+        throw Gone("The sync marker is too old or unknown; refetch the account");
     }
     json folders = json::array();
     for (const auto& f : db_.listCacheFolders(accountId)) {
@@ -348,7 +348,7 @@ void MailCache::storeBody(long long accountId, const MessageRef& ref, const mime
         std::string searchText;
         if (buildBody(msg, body, searchText)) db_.saveCacheBody(m->id, kBodyCached, body, searchText);
     } catch (const std::exception& e) {
-        std::cerr << "[cache] kunde inte spara meddelandetext: " << e.what() << "\n";
+        std::cerr << "[cache] could not save message text: " << e.what() << "\n";
     }
 }
 
@@ -360,7 +360,7 @@ void MailCache::flagsChanged(long long accountId, const std::string& folderPath,
         std::int64_t unread = db_.changeCacheFlags(folder->id, uids, flagsFromNames(add), flagsFromNames(remove));
         if (unread != 0) db_.adjustCacheFolderCounts(folder->id, 0, unread, true);
     } catch (const std::exception& e) {
-        std::cerr << "[cache] kunde inte uppdatera flaggor: " << e.what() << "\n";
+        std::cerr << "[cache] could not update flags: " << e.what() << "\n";
     }
 }
 
@@ -380,7 +380,7 @@ void MailCache::messagesRemoved(long long accountId, const std::string& folderPa
         }
         kick(accountId);
     } catch (const std::exception& e) {
-        std::cerr << "[cache] kunde inte uppdatera efter flytt: " << e.what() << "\n";
+        std::cerr << "[cache] could not update after move: " << e.what() << "\n";
     }
 }
 
@@ -462,7 +462,7 @@ void MailCache::deferredWorker() {
             task();
         } catch (const std::exception& e) {
             // T.ex. när mejlservern inte går att nå. Cachens flagga rättas vid nästa avstämning.
-            std::cerr << "[cache] uppskjuten ändring misslyckades: " << e.what() << "\n";
+            std::cerr << "[cache] deferred change failed: " << e.what() << "\n";
         }
     }
 }
@@ -582,14 +582,14 @@ void MailCache::worker(int index) {
                     st.syncing = false;
                     ++st.generation;
                     if (error.empty()) {
-                        if (st.offline) std::cout << "[cache] konto " << account.id << ": mejlservern svarar igen" << std::endl;
+                        if (st.offline) std::cout << "[cache] account " << account.id << ": the mail server is responding again" << std::endl;
                         st.offline = false;
                         st.error.clear();
                         st.failures = 0;
                         st.lastSyncAt = now();
                         st.nextPassAt = more ? 0 : now() + kPassInterval;
                     } else {
-                        if (!st.offline) std::cerr << "[cache] konto " << account.id << ": " << error << "\n";
+                        if (!st.offline) std::cerr << "[cache] account " << account.id << ": " << error << "\n";
                         st.offline = true;
                         st.error = error;
                         ++st.failures;
@@ -603,7 +603,7 @@ void MailCache::worker(int index) {
                 it = present.count(it->first) ? std::next(it) : clients.erase(it);
             }
         } catch (const std::exception& e) {
-            std::cerr << "[cache] synktråd " << index << ": " << e.what() << "\n";
+            std::cerr << "[cache] sync thread " << index << ": " << e.what() << "\n";
             wdb.reset();
         }
 
@@ -676,7 +676,7 @@ bool MailCache::syncAccount(Database& wdb, ImapClient& client, const Account& ac
         if (stopping()) return false;
         if (f.syncedUidValidity != 0 && f.syncedUidValidity != f.uidValidity) {
             // Mejlservern har numrerat om mappen; cachade UID:n pekar inte längre på samma meddelanden.
-            std::cout << "[cache] konto " << account.id << ": " << f.path << " har numrerats om, hämtas på nytt" << std::endl;
+            std::cout << "[cache] account " << account.id << ": " << f.path << " was renumbered, fetching it again" << std::endl;
             wdb.purgeCacheMessages(f.id);
             rawCache_.purgeAccount(account.id);
             f.headersComplete = false;
@@ -694,7 +694,7 @@ bool MailCache::syncAccount(Database& wdb, ImapClient& client, const Account& ac
             more = reconcileFolder(wdb, client, account, f, budget, startedAt, freshSince) || more;
         } catch (const MailServerError& e) {
             // T.ex. en mapp som togs bort eller bytte namn under tiden. Kontot i övrigt fungerar.
-            std::cerr << "[cache] konto " << account.id << ", " << f.path << ": " << e.what() << "\n";
+            std::cerr << "[cache] account " << account.id << ", " << f.path << ": " << e.what() << "\n";
         }
     }
 
@@ -708,7 +708,7 @@ bool MailCache::syncAccount(Database& wdb, ImapClient& client, const Account& ac
         try {
             more = fetchBodies(wdb, client, f, budget) || more;
         } catch (const MailServerError& e) {
-            std::cerr << "[cache] konto " << account.id << ", " << f.path << ": " << e.what() << "\n";
+            std::cerr << "[cache] account " << account.id << ", " << f.path << ": " << e.what() << "\n";
         }
     }
     return more;

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import { useMailStore } from '../store'
 import { displayName, formatListDate, specialFolderNames } from '../utils'
+import { locale, t } from '../i18n'
 import Icon from './Icon.vue'
 
 const store = useMailStore()
@@ -78,7 +79,7 @@ async function saveSettings() {
   try {
     ai.value = await api.aiSave(settingsPayload())
     form.apiKey = ''
-    store.notify('AI-inställningarna sparades')
+    store.notify(t('AI settings saved'))
     tab.value = 'sort'
   } catch (e) {
     settingsError.value = e.message
@@ -88,13 +89,13 @@ async function saveSettings() {
 }
 
 async function removeSettings() {
-  if (!window.confirm('Ta bort AI-inställningarna och alla sparade API-nycklar?')) return
+  if (!window.confirm(t('Remove the AI settings and all saved API keys?'))) return
   try {
     await api.aiRemove()
     ai.value = await api.ai()
     fillForm()
     testResult.value = null
-    store.notify('AI-inställningarna togs bort')
+    store.notify(t('AI settings removed'))
   } catch (e) {
     settingsError.value = e.message
   }
@@ -124,7 +125,8 @@ const moving = ref(false)
 let cancelled = false
 
 function folderName(f) {
-  return specialFolderNames[f.specialUse] || f.path
+  const special = specialFolderNames[f.specialUse]
+  return special ? t(special) : f.path
 }
 
 const accountFolders = computed(() => (store.folders[accountId.value] || []).filter((f) => f.selectable))
@@ -141,7 +143,7 @@ function saveExcluded(id, paths) {
   // Ett anrop i taget, så att det senaste valet är det som blir sparat.
   saveQueue = saveQueue
     .then(() => api.aiSortTargets(id, paths))
-    .catch((e) => store.notify(`Valet av mappar kunde inte sparas: ${e.message}`))
+    .catch((e) => store.notify(t('The folder selection could not be saved: {error}', { error: e.message })))
 }
 
 function loadExcluded() {
@@ -256,8 +258,8 @@ async function start() {
     if (!messages.length) {
       sortError.value =
         mode.value === 'continue' && cursor.value
-          ? 'Hela mappen är genomgången: det finns inga äldre meddelanden kvar att sortera.'
-          : 'Det finns inga meddelanden att sortera i mappen.'
+          ? t('The whole folder has been sorted: there are no older messages left to sort.')
+          : t('There are no messages to sort in this folder.')
       phase.value = 'setup'
       return
     }
@@ -305,7 +307,7 @@ function cancelRun() {
 const sortedRows = computed(() =>
   [...rows.value].sort((a, b) => {
     if (!!a.suggested !== !!b.suggested) return a.suggested ? -1 : 1
-    return (a.suggested || '').localeCompare(b.suggested || '', 'sv') || b.uid - a.uid
+    return (a.suggested || '').localeCompare(b.suggested || '', locale()) || b.uid - a.uid
   }),
 )
 const toMove = computed(() => rows.value.filter((r) => r.checked && r.target))
@@ -362,7 +364,9 @@ async function applyMoves({ next = false } = {}) {
   moving.value = false
   rows.value = rows.value.filter((r) => !movedUids.has(r.uid))
   if (moved) {
-    store.notify(`${moved} meddelande(n) flyttades till ${groups.size} mapp(ar)`)
+    const movedText = moved === 1 ? t('1 message') : t('{n} messages', { n: moved })
+    const foldersText = groups.size === 1 ? t('1 folder') : t('{n} folders', { n: groups.size })
+    store.notify(t('Moved {messages} to {folders}', { messages: movedText, folders: foldersText }))
     store.loadFolders(accountId.value)
     if (accountId.value === store.current.accountId) store.loadMessages({ keepSelection: true })
   }
@@ -409,7 +413,7 @@ async function sendFeedback(reviewed, movedUids) {
   try {
     learning.value = await api.aiFeedback(accountId.value, folder.value, decisions)
   } catch (e) {
-    store.notify(`Besluten kunde inte sparas för inlärningen: ${e.message}`, 'error')
+    store.notify(t('The decisions could not be saved for learning: {error}', { error: e.message }), 'error')
   }
 }
 
@@ -435,7 +439,7 @@ async function acceptAllSuggestions() {
 }
 
 async function clearCorrections() {
-  if (!window.confirm('Ta bort allt som sorteringen har lärt sig av dina rättningar? Reglerna ligger kvar.')) return
+  if (!window.confirm(t('Forget everything the sorting has learned from your corrections? Rules are kept.'))) return
   await learningCall(() => api.aiExamplesClear())
 }
 
@@ -449,7 +453,7 @@ function ruleFolders(id) {
 }
 
 function targetLabel(id, path) {
-  return path ? folderLabelByPath(id, path) : 'ligger kvar'
+  return path ? folderLabelByPath(id, path) : t('stays in place')
 }
 
 function accountEmail(id) {
@@ -496,12 +500,18 @@ async function loadJobs() {
 
 async function startJob() {
   const folderLabel = folderLabelByPath(accountId.value, folder.value)
-  const from = mode.value === 'continue' && cursor.value ? `meddelanden äldre än ${formatListDate(cursor.value.date)}` : 'alla meddelanden'
+  const from =
+    mode.value === 'continue' && cursor.value
+      ? t('messages older than {date}', { date: formatListDate(cursor.value.date) })
+      : t('all messages')
   const ok = window.confirm(
-    `Sortera ${from} i ${folderLabel} i bakgrunden?\n\n` +
-      'Servern går igenom mappen utan att du granskar förslagen. Bara det AI:n är säker på flyttas, aldrig till papperskorgen. ' +
-      `Varje flytt sparas i historiken under Automatiskt, och hela sorteringen går att ångra i ${jobLogDays.value} dagar. ` +
-      'Du kan stänga fönstret; sorteringen fortsätter på servern.',
+    t('Sort {scope} in {folder} in the background?', { scope: from, folder: folderLabel }) +
+      '\n\n' +
+      t('The server goes through the folder without you reviewing the suggestions. Only what the AI is sure about is moved, never to the trash.') +
+      ' ' +
+      t('Every move is saved in the history under Automatic, and the whole run can be undone for {days} days.', { days: jobLogDays.value }) +
+      ' ' +
+      t('You can close this window; sorting continues on the server.'),
   )
   if (!ok) return
   startingJob.value = true
@@ -525,8 +535,8 @@ async function startJob() {
 const jobLogDays = ref(30)
 
 async function jobAction(job, action) {
-  if (action === 'undo' && !window.confirm(`Flytta tillbaka de ${job.moved} meddelanden som sorteringen har flyttat från ${folderLabelByPath(job.accountId, job.folder)}?`)) return
-  if (action === 'cancel' && !window.confirm('Avbryta sorteringen? Det som redan har flyttats ligger kvar.')) return
+  if (action === 'undo' && !window.confirm(t('Move back the {n} messages that the sorting moved out of {folder}?', { n: job.moved, folder: folderLabelByPath(job.accountId, job.folder) }))) return
+  if (action === 'cancel' && !window.confirm(t('Cancel the sorting? Messages already moved stay where they are.'))) return
   jobBusy.value = job.id
   jobsError.value = ''
   try {
@@ -543,14 +553,14 @@ async function jobAction(job, action) {
   }
 }
 
-const jobStateText = {
-  running: 'Pågår',
-  paused: 'Pausad',
-  done: 'Klar',
-  cancelled: 'Avbruten',
-  undoing: 'Flyttar tillbaka…',
-  undone: 'Ångrad',
-}
+const jobStateText = computed(() => ({
+  running: t('Running'),
+  paused: t('Paused'),
+  done: t('Done'),
+  cancelled: t('Cancelled'),
+  undoing: t('Moving back…'),
+  undone: t('Undone'),
+}))
 
 function jobMovedText(job) {
   const parts = Object.entries(job.movedTo || {}).sort((a, b) => b[1] - a[1]).map(([path, n]) => `${folderLabelByPath(job.accountId, path)} ${n}`)
@@ -612,7 +622,7 @@ async function saveAuto(id) {
   f.error = ''
   try {
     auto.value = await api.aiAutoSave(id, { enabled: f.enabled, intervalMinutes: f.intervalMinutes, targets: [...f.targets] })
-    store.notify(f.enabled ? 'Automatisk sortering är på. Ny post i inkorgen sorteras från och med nu.' : 'Automatisk sortering är av')
+    store.notify(f.enabled ? t('Automatic sorting is on. New mail in the inbox will be sorted from now on.') : t('Automatic sorting is off'))
   } catch (e) {
     f.error = e.message
   } finally {
@@ -625,7 +635,7 @@ async function undo(entry) {
   autoError.value = ''
   try {
     auto.value = await api.aiUndo(entry.id)
-    store.notify('Meddelandet flyttades tillbaka och sorteras inte igen')
+    store.notify(t('The message was moved back and will not be sorted again'))
     store.loadFolders(entry.accountId)
     if (entry.accountId === store.current.accountId) store.loadMessages({ keepSelection: true })
   } catch (e) {
@@ -683,89 +693,93 @@ onBeforeUnmount(() => {
   <div class="modal-backdrop">
     <div class="modal ai-sort">
       <div class="modal-header">
-        <h2>Sortera med AI</h2>
-        <button class="btn ghost" title="Stäng" :disabled="moving" @click="close"><Icon name="close" /></button>
+        <h2>{{ t('Sort with AI') }}</h2>
+        <button class="btn ghost" :title="t('Close')" :disabled="moving" @click="close"><Icon name="close" /></button>
       </div>
 
       <nav class="tabs">
-        <button :class="{ active: tab === 'sort' }" @click="tab = 'sort'"><Icon name="sparkles" /> Sortera</button>
-        <button :class="{ active: tab === 'auto' }" @click="tab = 'auto'"><Icon name="clock" /> Automatiskt</button>
-        <button :class="{ active: tab === 'settings' }" @click="tab = 'settings'"><Icon name="settings" /> Inställningar</button>
+        <button :class="{ active: tab === 'sort' }" @click="tab = 'sort'"><Icon name="sparkles" /> {{ t('Sort') }}</button>
+        <button :class="{ active: tab === 'auto' }" @click="tab = 'auto'"><Icon name="clock" /> {{ t('Automatic') }}</button>
+        <button :class="{ active: tab === 'settings' }" @click="tab = 'settings'"><Icon name="settings" /> {{ t('Settings') }}</button>
       </nav>
 
-      <div v-if="loading" class="body muted">Läser in…</div>
+      <div v-if="loading" class="body muted">{{ t('Loading…') }}</div>
       <div v-else-if="loadError" class="body error-text">{{ loadError }}</div>
 
       <!-- Sortera -->
       <template v-else-if="tab === 'sort'">
         <section v-if="ai.configured && phase !== 'running' && learning.suggestions.length" class="rule-suggestions outer">
           <h3>
-            Förslag på regler
+            {{ t('Suggested rules') }}
             <button v-if="learning.suggestions.length > 1" class="link" :disabled="learningBusy" @click="acceptAllSuggestions">
-              Skapa alla {{ learning.suggestions.length }}
+              {{ t('Create all {n}', { n: learning.suggestions.length }) }}
             </button>
           </h3>
           <p class="muted note">
-            Du har gjort samma val {{ learning.ruleAfter }} gånger i rad för de här avsändarna. Med en regel hamnar deras mejl rätt
-            direkt, utan att AI:n tillfrågas.
+            {{
+              t(
+                'You have made the same choice {n} times in a row for these senders. With a rule, their mail goes to the right place straight away, without asking the AI.',
+                { n: learning.ruleAfter },
+              )
+            }}
           </p>
           <div v-for="s in learning.suggestions.slice(0, 5)" :key="`${s.accountId}:${s.sender}`" class="rule-suggestion">
             <span>
-              Mejl från <strong :title="s.sender">{{ s.name || s.sender }}</strong>
+              {{ t('Mail from') }} <strong :title="s.sender">{{ s.name || s.sender }}</strong>
               <span class="muted"> &lt;{{ s.sender }}&gt;</span>
               → <strong>{{ targetLabel(s.accountId, s.target) }}</strong>
             </span>
             <span class="spacer" />
-            <button class="btn small" :disabled="learningBusy" @click="acceptSuggestion(s)">Skapa regel</button>
-            <button class="btn small ghost" :disabled="learningBusy" @click="dismissSuggestion(s)">Nej tack</button>
+            <button class="btn small" :disabled="learningBusy" @click="acceptSuggestion(s)">{{ t('Create rule') }}</button>
+            <button class="btn small ghost" :disabled="learningBusy" @click="dismissSuggestion(s)">{{ t('No thanks') }}</button>
           </div>
-          <p v-if="learning.suggestions.length > 5" class="muted note">…och {{ learning.suggestions.length - 5 }} till.</p>
+          <p v-if="learning.suggestions.length > 5" class="muted note">{{ t('…and {n} more.', { n: learning.suggestions.length - 5 }) }}</p>
           <p v-if="learningError" class="error-text">{{ learningError }}</p>
         </section>
 
         <div v-if="!ai.configured" class="body">
-          <p>Välj en AI-tjänst och ange en API-nyckel för att komma igång.</p>
-          <button class="btn primary" @click="tab = 'settings'">Öppna inställningar</button>
+          <p>{{ t('Choose an AI service and enter an API key to get started.') }}</p>
+          <button class="btn primary" @click="tab = 'settings'">{{ t('Open settings') }}</button>
         </div>
 
         <template v-else-if="phase === 'setup'">
           <div class="body">
             <section v-if="shownJobs.length" class="jobs">
-              <h3>Hela mappar i bakgrunden</h3>
+              <h3>{{ t('Whole folders in the background') }}</h3>
               <div v-for="j in shownJobs" :key="j.id" class="job" :class="`state-${j.state}`">
                 <div class="job-head">
                   <strong>{{ folderLabelByPath(j.accountId, j.folder) }}</strong>
                   <span v-if="store.accounts.length > 1" class="muted">{{ store.accounts.find((a) => a.id === j.accountId)?.email }}</span>
                   <span class="job-state">{{ jobStateText[j.state] || j.state }}</span>
                   <span class="spacer" />
-                  <button v-if="j.state === 'running'" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'pause')">Pausa</button>
-                  <button v-if="j.state === 'paused'" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'resume')">Fortsätt</button>
-                  <button v-if="['running', 'paused'].includes(j.state)" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'cancel')">Avbryt</button>
+                  <button v-if="j.state === 'running'" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'pause')">{{ t('Pause') }}</button>
+                  <button v-if="j.state === 'paused'" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'resume')">{{ t('Resume') }}</button>
+                  <button v-if="['running', 'paused'].includes(j.state)" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'cancel')">{{ t('Cancel') }}</button>
                   <button v-if="['paused', 'done', 'cancelled'].includes(j.state) && j.moved > 0" class="btn small" :disabled="jobBusy === j.id" @click="jobAction(j, 'undo')">
-                    Ångra allt
+                    {{ t('Undo all') }}
                   </button>
                 </div>
                 <progress v-if="['running', 'paused'].includes(j.state)" :value="j.processed" :max="j.total || 1" />
                 <p class="muted note">
-                  {{ Math.min(j.processed, j.total) }} av {{ j.total }} genomgångna, {{ j.moved }} flyttade<template v-if="jobMovedText(j)">: {{ jobMovedText(j) }}</template>.
-                  <template v-if="j.state === 'undone' && j.moved > 0">{{ j.moved }} meddelanden hittades inte längre och ligger kvar där de är.</template>
+                  {{ t('{done} of {total} processed, {moved} moved', { done: Math.min(j.processed, j.total), total: j.total, moved: j.moved }) }}<template v-if="jobMovedText(j)">: {{ jobMovedText(j) }}</template>.
+                  <template v-if="j.state === 'undone' && j.moved > 0">{{ t('{n} messages could no longer be found and stay where they are.', { n: j.moved }) }}</template>
                   <template v-if="j.finishedAt">{{ formatListDate(j.finishedAt) }}.</template>
                 </p>
                 <p v-if="j.lastError && ['running', 'paused', 'undoing', 'cancelled'].includes(j.state)" class="error-text note">
-                  {{ j.lastError }}<template v-if="['running', 'undoing'].includes(j.state)">. Nytt försök {{ formatListDate(j.nextRunAt) }}.</template>
+                  {{ j.lastError }}<template v-if="['running', 'undoing'].includes(j.state)">. {{ t('Retrying {time}.', { time: formatListDate(j.nextRunAt) }) }}</template>
                 </p>
               </div>
             </section>
 
             <div class="grid">
               <label>
-                <span>Konto</span>
+                <span>{{ t('Account') }}</span>
                 <select v-model="accountId" class="input">
                   <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }} &lt;{{ a.email }}&gt;</option>
                 </select>
               </label>
               <label>
-                <span>Mapp att sortera</span>
+                <span>{{ t('Folder to sort') }}</span>
                 <select v-model="folder" class="input">
                   <option v-for="f in sourceFolders" :key="f.path" :value="f.path">{{ folderName(f) }}</option>
                 </select>
@@ -773,13 +787,13 @@ onBeforeUnmount(() => {
             </div>
 
             <p v-if="presetUids" class="scope">
-              <strong>{{ presetUids.length }} markerade meddelanden</strong> sorteras.
-              <button class="link" @click="presetUids = null">Välj de senaste i mappen i stället</button>
+              <strong>{{ t('{n} selected messages', { n: presetUids.length }) }}</strong> {{ t('will be sorted.') }}
+              <button class="link" @click="presetUids = null">{{ t('Sort the latest in the folder instead') }}</button>
             </p>
             <template v-else>
               <div class="scope-row">
                 <label class="inline">
-                  <span>Sortera</span>
+                  <span>{{ t('Sort') }}</span>
                   <select v-model="limit" class="input auto">
                     <option :value="25">25</option>
                     <option :value="50">50</option>
@@ -787,34 +801,33 @@ onBeforeUnmount(() => {
                     <option :value="200">200</option>
                     <option :value="500">500</option>
                   </select>
-                  <span>meddelanden i taget</span>
+                  <span>{{ t('messages at a time') }}</span>
                 </label>
-                <label class="inline"><input v-model="unreadOnly" type="checkbox" /> Bara olästa</label>
+                <label class="inline"><input v-model="unreadOnly" type="checkbox" /> {{ t('Unread only') }}</label>
               </div>
               <div class="scope-modes">
-                <label class="inline"><input v-model="mode" type="radio" value="latest" /> De senaste i mappen</label>
+                <label class="inline"><input v-model="mode" type="radio" value="latest" /> {{ t('The latest in the folder') }}</label>
                 <label class="inline" :class="{ muted: !cursor || remaining === 0 }">
                   <input v-model="mode" type="radio" value="continue" :disabled="!cursor || remaining === 0" />
-                  <span v-if="!cursor">Fortsätt bakåt där du slutade (inget är sorterat i mappen ännu)</span>
-                  <span v-else-if="remaining === 0">Hela mappen är genomgången</span>
+                  <span v-if="!cursor">{{ t('Continue back where you left off (nothing in this folder has been sorted yet)') }}</span>
+                  <span v-else-if="remaining === 0">{{ t('The whole folder has been sorted') }}</span>
                   <span v-else>
-                    Fortsätt bakåt där du slutade: äldre än {{ formatListDate(cursor.date) }}
-                    <template v-if="remaining !== null">({{ remaining }} kvar)</template>
+                    {{ t('Continue back where you left off: older than {date}', { date: formatListDate(cursor.date) }) }}
+                    <template v-if="remaining !== null">({{ t('{n} left', { n: remaining }) }})</template>
                   </span>
                 </label>
-                <button v-if="cursor" class="link" @click="restart">Börja om från början</button>
+                <button v-if="cursor" class="link" @click="restart">{{ t('Start over from the beginning') }}</button>
               </div>
               <p class="muted note">
-                För att gå igenom en hel mapp: hämta förslag, godkänn och välj <strong>Flytta och hämta nästa</strong>.
-                Varje omgång tar de närmast äldre meddelandena, även om en del fick ligga kvar, och du kan stänga och
-                fortsätta en annan dag.
+                {{ t('To go through a whole folder: get suggestions, approve them and choose') }} <strong>{{ t('Move and get next') }}</strong>.
+                {{ t('Each round takes the next older messages, even if some were left in place, and you can close and continue another day.') }}
               </p>
             </template>
 
             <details class="targets">
               <summary>
-                Mappar som AI:n får föreslå
-                <span class="muted">({{ targets.length }} av {{ possibleTargets.length }})</span>
+                {{ t('Folders the AI may suggest') }}
+                <span class="muted">({{ t('{n} of {total}', { n: targets.length, total: possibleTargets.length }) }})</span>
               </summary>
               <div class="target-list">
                 <label v-for="f in possibleTargets" :key="f.path" class="inline">
@@ -824,57 +837,66 @@ onBeforeUnmount(() => {
               </div>
             </details>
             <p v-if="!targets.length" class="error-text">
-              Det finns inga mappar att sortera till. Skapa mappar genom att högerklicka på kontot, eller välj fler ovan.
+              {{ t('There are no folders to sort into. Create folders by right-clicking the account, or select more above.') }}
             </p>
 
             <p class="muted note">
-              Avsändare, mottagare, ämne och de första {{ ai.snippetChars }} tecknen av texten skickas till
-              {{ savedProvider?.name }} ({{ ai.settings.model }}). Inget flyttas förrän du har godkänt förslagen.
+              {{
+                t(
+                  'Sender, recipients, subject and the first {n} characters of the text are sent to {provider} ({model}). Nothing is moved until you have approved the suggestions.',
+                  { n: ai.snippetChars, provider: savedProvider?.name, model: ai.settings.model },
+                )
+              }}
               <template v-if="learning.rules.length || learning.corrections.length">
-                Sorteringen använder {{ learning.rules.length }} avsändarregler och lär sig av {{ learning.corrections.length }} rättningar (se Inställningar).
+                {{
+                  t('Sorting uses {rules} sender rules and learns from {corrections} corrections (see Settings).', {
+                    rules: learning.rules.length,
+                    corrections: learning.corrections.length,
+                  })
+                }}
               </template>
-              <template v-if="ai.settings.instructions">Dina egna regler används.</template>
-              <template v-else>Du kan skriva egna regler under Inställningar.</template>
+              <template v-if="ai.settings.instructions">{{ t('Your own rules are used.') }}</template>
+              <template v-else>{{ t('You can write your own rules under Settings.') }}</template>
             </p>
             <p v-if="sortError" class="error-text">{{ sortError }}</p>
             <p v-if="jobsError" class="error-text">{{ jobsError }}</p>
           </div>
           <div class="modal-footer">
-            <button class="btn" @click="close">Stäng</button>
+            <button class="btn" @click="close">{{ t('Close') }}</button>
             <button
               v-if="!presetUids"
               class="btn"
               :disabled="!accountId || !jobTargets.length || accountHasJob || startingJob"
-              :title="accountHasJob ? 'Kontot har redan en sortering i bakgrunden' : 'Servern sorterar hela mappen utan granskning. Går att pausa och ångra.'"
+              :title="accountHasJob ? t('This account already has a sort running in the background') : t('The server sorts the whole folder without review. It can be paused and undone.')"
               @click="startJob"
             >
-              <Icon name="clock" /> {{ startingJob ? 'Startar…' : 'Sortera hela mappen i bakgrunden' }}
+              <Icon name="clock" /> {{ startingJob ? t('Starting…') : t('Sort the whole folder in the background') }}
             </button>
             <button class="btn primary" :disabled="!accountId || !targets.length" @click="start">
-              <Icon name="sparkles" /> Hämta förslag
+              <Icon name="sparkles" /> {{ t('Get suggestions') }}
             </button>
           </div>
         </template>
 
         <template v-else-if="phase === 'running'">
           <div class="body running">
-            <p v-if="progress.total">AI:n läser meddelandena… {{ progress.done }} av {{ progress.total }}</p>
-            <p v-else>Hämtar meddelanden…</p>
+            <p v-if="progress.total">{{ t('The AI is reading the messages… {done} of {total}', { done: progress.done, total: progress.total }) }}</p>
+            <p v-else>{{ t('Fetching messages…') }}</p>
             <progress :value="progress.done" :max="progress.total || 1" />
-            <p v-if="rows.length" class="muted">{{ suggestedCount }} förslag hittills</p>
+            <p v-if="rows.length" class="muted">{{ t('{n} suggestions so far', { n: suggestedCount }) }}</p>
           </div>
           <div class="modal-footer">
-            <button class="btn" @click="cancelRun">Avbryt</button>
+            <button class="btn" @click="cancelRun">{{ t('Cancel') }}</button>
           </div>
         </template>
 
         <template v-else>
           <div class="summary">
             <span>
-              <strong>{{ suggestedCount }}</strong> av {{ rows.length }} meddelanden föreslås flyttas.
-              Ändra målmapp eller bocka ur det du inte håller med om.
+              <strong>{{ suggestedCount }}</strong>
+              {{ t('of {total} messages are suggested to be moved. Change the target folder or untick what you disagree with.', { total: rows.length }) }}
               <template v-if="run.fromFolder && run.oldest">
-                Omgången går tillbaka till {{ formatListDate(run.oldest.date) }}; {{ run.older }} äldre återstår.
+                {{ t('This round goes back to {date}; {n} older remain.', { date: formatListDate(run.oldest.date), n: run.older }) }}
               </template>
             </span>
           </div>
@@ -883,11 +905,11 @@ onBeforeUnmount(() => {
             <table>
               <thead>
                 <tr>
-                  <th class="check"><input type="checkbox" :checked="allChecked" title="Markera alla" @change="toggleAll" /></th>
-                  <th>Från</th>
-                  <th>Ämne</th>
-                  <th>Flytta till</th>
-                  <th>Motivering</th>
+                  <th class="check"><input type="checkbox" :checked="allChecked" :title="t('Select all')" @change="toggleAll" /></th>
+                  <th>{{ t('From') }}</th>
+                  <th>{{ t('Subject') }}</th>
+                  <th>{{ t('Move to') }}</th>
+                  <th>{{ t('Reason') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -895,27 +917,27 @@ onBeforeUnmount(() => {
                   <td class="check"><input v-model="r.checked" type="checkbox" :disabled="!r.target" /></td>
                   <td class="from" :title="r.from">{{ r.from }}</td>
                   <td class="subject" :title="r.subject">
-                    {{ r.subject || '(inget ämne)' }}
+                    {{ r.subject || t('(no subject)') }}
                     <span class="muted date">{{ formatListDate(r.date) }}</span>
                   </td>
                   <td class="target">
                     <select v-model="r.target" class="input" @change="onTargetChange(r)">
-                      <option value="">– Ligger kvar –</option>
+                      <option value="">{{ t('– Leave in place –') }}</option>
                       <option v-for="f in possibleTargets" :key="f.path" :value="f.path">{{ folderName(f) }}</option>
                     </select>
                   </td>
-                  <td class="reason muted" :title="r.reason">{{ r.target === (r.suggested || '') ? r.reason : 'Ändrad av dig' }}</td>
+                  <td class="reason muted" :title="r.reason">{{ r.target === (r.suggested || '') ? r.reason : t('Changed by you') }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <div class="modal-footer">
-            <button class="btn" :disabled="moving" @click="backToSetup">Tillbaka</button>
+            <button class="btn" :disabled="moving" @click="backToSetup">{{ t('Back') }}</button>
             <button class="btn" :class="{ primary: !canContinue }" :disabled="moving || !toMove.length" @click="applyMoves()">
-              {{ moving ? 'Flyttar…' : `Flytta ${toMove.length} meddelande(n)` }}
+              {{ moving ? t('Moving…') : toMove.length === 1 ? t('Move 1 message') : t('Move {n} messages', { n: toMove.length }) }}
             </button>
             <button v-if="canContinue" class="btn primary" :disabled="moving" @click="applyMoves({ next: true })">
-              {{ toMove.length ? `Flytta ${toMove.length} och hämta nästa ${limit}` : `Hämta nästa ${limit}` }}
+              {{ toMove.length ? t('Move {n} and get the next {limit}', { n: toMove.length, limit }) : t('Get the next {limit}', { limit }) }}
             </button>
           </div>
         </template>
@@ -925,14 +947,16 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'auto'">
         <div class="body">
           <div v-if="!ai.configured">
-            <p>Välj en AI-tjänst och ange en API-nyckel för att komma igång.</p>
-            <button class="btn primary" @click="tab = 'settings'">Öppna inställningar</button>
+            <p>{{ t('Choose an AI service and enter an API key to get started.') }}</p>
+            <button class="btn primary" @click="tab = 'settings'">{{ t('Open settings') }}</button>
           </div>
           <template v-else>
             <p class="muted note">
-              Servern sorterar ny post i inkorgen även när du inte är inloggad. Bara post som kommer efter att du slagit på
-              sorteringen berörs, och AI:n flyttar bara det den är säker på. Inget flyttas till papperskorgen, och varje
-              flytt går att ångra i historiken nedan. Dina egna regler under Inställningar används.
+              {{
+                t(
+                  'The server sorts new mail in the inbox even when you are not signed in. Only mail that arrives after you turn sorting on is affected, and the AI only moves what it is sure about. Nothing is moved to the trash, and every move can be undone in the history below. Your own rules under Settings are used.',
+                )
+              }}
             </p>
             <p v-if="autoError" class="error-text">{{ autoError }}</p>
 
@@ -944,7 +968,7 @@ onBeforeUnmount(() => {
                     <strong>{{ a.name }} &lt;{{ a.email }}&gt;</strong>
                   </label>
                   <label class="inline">
-                    <span>Kontrollera var</span>
+                    <span>{{ t('Check every') }}</span>
                     <select v-model="autoForms[a.id].intervalMinutes" class="input auto">
                       <option :value="2">2 min</option>
                       <option :value="5">5 min</option>
@@ -953,13 +977,13 @@ onBeforeUnmount(() => {
                     </select>
                   </label>
                   <button class="btn" :disabled="autoForms[a.id].saving" @click="saveAuto(a.id)">
-                    {{ autoForms[a.id].saving ? 'Sparar…' : 'Spara' }}
+                    {{ autoForms[a.id].saving ? t('Saving…') : t('Save') }}
                   </button>
                 </div>
                 <details class="targets" :open="autoForms[a.id].enabled && !ruleFor(a.id)?.enabled">
                   <summary>
-                    Mappar som AI:n får flytta till
-                    <span class="muted">({{ autoForms[a.id].targets.size }} av {{ autoTargets(a.id).length }})</span>
+                    {{ t('Folders the AI may move to') }}
+                    <span class="muted">({{ t('{n} of {total}', { n: autoForms[a.id].targets.size, total: autoTargets(a.id).length }) }})</span>
                   </summary>
                   <div class="target-list">
                     <label v-for="f in autoTargets(a.id)" :key="f.path" class="inline">
@@ -970,27 +994,27 @@ onBeforeUnmount(() => {
                 </details>
                 <p v-if="autoForms[a.id].error" class="error-text">{{ autoForms[a.id].error }}</p>
                 <p v-else-if="ruleFor(a.id)?.enabled && ruleFor(a.id).lastError" class="error-text">
-                  Senaste kontrollen misslyckades: {{ ruleFor(a.id).lastError }}. Ett nytt försök görs om en stund.
+                  {{ t('The last check failed: {error}. It will be retried shortly.', { error: ruleFor(a.id).lastError }) }}
                 </p>
                 <p v-else-if="ruleFor(a.id)?.enabled" class="muted note">
-                  På.
-                  <template v-if="ruleFor(a.id).lastRunAt">Senast kontrollerad {{ formatListDate(ruleFor(a.id).lastRunAt) }}.</template>
-                  <template v-else>Första kontrollen görs strax.</template>
+                  {{ t('On.') }}
+                  <template v-if="ruleFor(a.id).lastRunAt">{{ t('Last checked {date}.', { date: formatListDate(ruleFor(a.id).lastRunAt) }) }}</template>
+                  <template v-else>{{ t('The first check will run shortly.') }}</template>
                 </p>
               </template>
             </section>
 
-            <h3>Historik <span class="muted">(sparas i {{ auto.logDays }} dagar)</span></h3>
-            <p v-if="!auto.log.length" class="muted">Inget har sorterats automatiskt ännu.</p>
+            <h3>{{ t('History') }} <span class="muted">({{ t('kept for {n} days', { n: auto.logDays }) }})</span></h3>
+            <p v-if="!auto.log.length" class="muted">{{ t('Nothing has been sorted automatically yet.') }}</p>
             <div v-else class="table-wrap history">
               <table>
                 <thead>
                   <tr>
-                    <th>När</th>
-                    <th>Från</th>
-                    <th>Ämne</th>
-                    <th>Flyttades till</th>
-                    <th>Motivering</th>
+                    <th>{{ t('When') }}</th>
+                    <th>{{ t('From') }}</th>
+                    <th>{{ t('Subject') }}</th>
+                    <th>{{ t('Moved to') }}</th>
+                    <th>{{ t('Reason') }}</th>
                     <th class="undo" />
                   </tr>
                 </thead>
@@ -998,12 +1022,12 @@ onBeforeUnmount(() => {
                   <tr v-for="e in auto.log" :key="e.id" :class="{ stay: e.undoneAt }">
                     <td>{{ formatListDate(e.movedAt) }}</td>
                     <td :title="e.sender">{{ e.sender }}</td>
-                    <td :title="e.subject">{{ e.subject || '(inget ämne)' }}</td>
+                    <td :title="e.subject">{{ e.subject || t('(no subject)') }}</td>
                     <td :title="e.targetFolder">{{ folderLabelByPath(e.accountId, e.targetFolder) }}</td>
                     <td class="muted" :title="e.reason">{{ e.reason }}</td>
                     <td class="undo target">
-                      <span v-if="e.undoneAt" class="muted">Ångrad</span>
-                      <button v-else class="btn small" :disabled="undoing === e.id" @click="undo(e)">Ångra</button>
+                      <span v-if="e.undoneAt" class="muted">{{ t('Undone') }}</span>
+                      <button v-else class="btn small" :disabled="undoing === e.id" @click="undo(e)">{{ t('Undo') }}</button>
                     </td>
                   </tr>
                 </tbody>
@@ -1017,17 +1041,17 @@ onBeforeUnmount(() => {
       <template v-else>
         <form class="body" @submit.prevent="saveSettings">
           <p v-if="ai.settings && !ai.settings.providerAvailable" class="error-text">
-            Den sparade tjänsten ({{ ai.settings.baseUrl }}) är inte längre tillgänglig på servern. Välj en annan.
+            {{ t('The saved service ({url}) is no longer available on the server. Choose another one.', { url: ai.settings.baseUrl }) }}
           </p>
           <div class="grid">
             <label>
-              <span>AI-tjänst</span>
+              <span>{{ t('AI service') }}</span>
               <select v-model="form.baseUrl" class="input" @change="onProviderChange">
                 <option v-for="p in ai.providers" :key="p.baseUrl" :value="p.baseUrl">{{ p.name }}</option>
               </select>
             </label>
             <label>
-              <span>Modell</span>
+              <span>{{ t('Model') }}</span>
               <input v-model="form.model" class="input" list="ai-models" autocomplete="off" spellcheck="false" required />
               <datalist id="ai-models">
                 <option v-for="m in models" :key="m" :value="m" />
@@ -1036,100 +1060,103 @@ onBeforeUnmount(() => {
           </div>
           <label>
             <span>
-              API-nyckel
-              <a v-if="keyLinks[form.baseUrl]" :href="keyLinks[form.baseUrl]" target="_blank" rel="noopener noreferrer">Skapa en nyckel</a>
+              {{ t('API key') }}
+              <a v-if="keyLinks[form.baseUrl]" :href="keyLinks[form.baseUrl]" target="_blank" rel="noopener noreferrer">{{ t('Create a key') }}</a>
             </span>
             <input
               v-model="form.apiKey"
               class="input"
               type="password"
               autocomplete="off"
-              :placeholder="keepsSavedKey ? 'Sparad för den här tjänsten – lämna tomt för att behålla' : provider?.keyRequired ? '' : 'Behövs inte för den här tjänsten'"
+              :placeholder="keepsSavedKey ? t('Saved for this service – leave empty to keep it') : provider?.keyRequired ? '' : t('Not needed for this service')"
             />
           </label>
           <label>
-            <span>Egna regler (valfritt)</span>
+            <span>{{ t('Your own rules (optional)') }}</span>
             <textarea
               v-model="form.instructions"
               class="input"
               rows="6"
               maxlength="4000"
-              placeholder="Till exempel:&#10;Kvitton och fakturor ska till Ekonomi.&#10;Nyhetsbrev ska till Läs senare.&#10;Mejl från skolan ska ligga kvar i inkorgen."
+              :placeholder="t('For example:\nReceipts and invoices go to Finance.\nNewsletters go to Read later.\nMail from the school stays in the inbox.')"
             />
           </label>
 
           <p class="muted note">
-            Nyckeln sparas krypterad på servern, en per tjänst, och visas aldrig igen. Byter du tjänst finns den gamla tjänstens
-            nyckel kvar tills du väljer Ta bort. När du sorterar skickas avsändare, mottagare, ämne
-            och de första {{ ai.snippetChars }} tecknen av varje meddelande till tjänsten du har valt. Läs tjänstens
-            villkor: på Geminis gratisnivå får Google använda innehållet för att förbättra sina produkter, men inte på
-            betalnivån.
+            {{
+              t(
+                "The key is stored encrypted on the server, one per service, and is never shown again. If you switch service, the old service's key is kept until you choose Remove. When you sort, the sender, recipients, subject and the first {n} characters of each message are sent to the service you have chosen. Read the service's terms: on Gemini's free tier Google may use the content to improve its products, but not on the paid tier.",
+                { n: ai.snippetChars },
+              )
+            }}
           </p>
 
           <p v-if="testResult?.ok" class="ok-text">
-            Anslutningen fungerar. {{ testResult.models.length }} modeller finns att välja i fältet Modell.
+            {{ t('The connection works. {n} models are available to choose from in the Model field.', { n: testResult.models.length }) }}
             <template v-if="testResult.warning"><br />{{ testResult.warning }}</template>
           </p>
           <p v-else-if="testResult" class="error-text">{{ testResult.error }}</p>
           <p v-if="settingsError" class="error-text">{{ settingsError }}</p>
 
           <section class="learned">
-            <h3>Inlärt</h3>
+            <h3>{{ t('Learned') }}</h3>
             <p class="muted note">
-              När du byter mapp på ett förslag, tackar nej till det eller ångrar en automatisk flytt sparas det som en rättning.
-              AI:n får de mest närliggande rättningarna som exempel vid varje sortering. Avsändarregler gäller före AI:n, även
-              vid automatisk sortering och i bakgrunden (dock aldrig till papperskorgen utan granskning).
+              {{
+                t(
+                  'When you change the folder of a suggestion, decline it or undo an automatic move, it is saved as a correction. The AI gets the most relevant corrections as examples with every sort. Sender rules take precedence over the AI, also for automatic sorting and in the background (but never to the trash without review).',
+                )
+              }}
             </p>
             <p v-if="learningError" class="error-text">{{ learningError }}</p>
 
-            <h4>Avsändarregler <span class="muted">({{ learning.rules.length }})</span></h4>
+            <h4>{{ t('Sender rules') }} <span class="muted">({{ learning.rules.length }})</span></h4>
             <div v-if="learning.rules.length" class="learned-list">
               <div v-for="r in learning.rules" :key="r.id" class="learned-row">
                 <span class="grow" :title="accountEmail(r.accountId)">
                   <strong>{{ r.sender }}</strong> → {{ targetLabel(r.accountId, r.target) }}
-                  <span v-if="r.target && !store.folderInfo(r.accountId, r.target)" class="error-text">(mappen finns inte längre)</span>
+                  <span v-if="r.target && !store.folderInfo(r.accountId, r.target)" class="error-text">{{ t('(the folder no longer exists)') }}</span>
                   <span v-if="store.accounts.length > 1" class="muted"> · {{ accountEmail(r.accountId) }}</span>
                 </span>
-                <button class="btn small ghost" type="button" title="Ta bort regeln" :disabled="learningBusy" @click="deleteRule(r)"><Icon name="close" :size="12" /></button>
+                <button class="btn small ghost" type="button" :title="t('Delete rule')" :disabled="learningBusy" @click="deleteRule(r)"><Icon name="close" :size="12" /></button>
               </div>
             </div>
             <div class="rule-form">
               <select v-if="store.accounts.length > 1" v-model="newRule.accountId" class="input auto">
                 <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.email }}</option>
               </select>
-              <input v-model="newRule.sender" class="input" placeholder="namn@exempel.se eller @exempel.se" spellcheck="false" @keydown.enter.prevent="addRule" />
+              <input v-model="newRule.sender" class="input" :placeholder="t('name@example.com or @example.com')" spellcheck="false" @keydown.enter.prevent="addRule" />
               <select v-model="newRule.target" class="input auto">
-                <option value="">– Ligger kvar –</option>
+                <option value="">{{ t('– Leave in place –') }}</option>
                 <option v-for="f in ruleFolders(newRule.accountId)" :key="f.path" :value="f.path">{{ folderName(f) }}</option>
               </select>
-              <button class="btn" type="button" :disabled="learningBusy || !newRule.sender.trim() || !newRule.accountId" @click="addRule">Lägg till regel</button>
+              <button class="btn" type="button" :disabled="learningBusy || !newRule.sender.trim() || !newRule.accountId" @click="addRule">{{ t('Add rule') }}</button>
             </div>
 
             <h4>
-              Rättningar <span class="muted">({{ learning.corrections.length }}{{ learning.corrections.length >= 200 ? '+' : '' }})</span>
-              <button v-if="learning.corrections.length" class="link" type="button" :disabled="learningBusy" @click="clearCorrections">Ta bort alla</button>
+              {{ t('Corrections') }} <span class="muted">({{ learning.corrections.length }}{{ learning.corrections.length >= 200 ? '+' : '' }})</span>
+              <button v-if="learning.corrections.length" class="link" type="button" :disabled="learningBusy" @click="clearCorrections">{{ t('Delete all') }}</button>
             </h4>
-            <p v-if="!learning.corrections.length" class="muted note">Inga rättningar ännu.</p>
+            <p v-if="!learning.corrections.length" class="muted note">{{ t('No corrections yet.') }}</p>
             <div v-else class="learned-list">
               <div v-for="c in learning.corrections" :key="c.id" class="learned-row">
                 <span class="grow" :title="`${c.name} <${c.email}> – ${c.subject}`">
-                  <strong>{{ c.name || c.email }}</strong> <span class="muted">{{ c.subject || '(inget ämne)' }}</span>
+                  <strong>{{ c.name || c.email }}</strong> <span class="muted">{{ c.subject || t('(no subject)') }}</span>
                 </span>
                 <span class="verdict">
                   <s>{{ targetLabel(c.accountId, c.suggested) }}</s> → {{ targetLabel(c.accountId, c.chosen) }}
                 </span>
-                <button class="btn small ghost" type="button" title="Ta bort rättningen" :disabled="learningBusy" @click="deleteCorrection(c)"><Icon name="close" :size="12" /></button>
+                <button class="btn small ghost" type="button" :title="t('Delete correction')" :disabled="learningBusy" @click="deleteCorrection(c)"><Icon name="close" :size="12" /></button>
               </div>
             </div>
           </section>
         </form>
         <div class="modal-footer">
-          <button v-if="ai.settings" class="btn danger left" type="button" @click="removeSettings">Ta bort</button>
+          <button v-if="ai.settings" class="btn danger left" type="button" @click="removeSettings">{{ t('Remove') }}</button>
           <button class="btn" type="button" :disabled="testing || !canSave" @click="testSettings">
-            {{ testing ? 'Testar…' : 'Testa' }}
+            {{ testing ? t('Testing…') : t('Test') }}
           </button>
           <button class="btn primary" type="button" :disabled="saving || !canSave" @click="saveSettings">
-            {{ saving ? 'Sparar…' : 'Spara' }}
+            {{ saving ? t('Saving…') : t('Save') }}
           </button>
         </div>
       </template>

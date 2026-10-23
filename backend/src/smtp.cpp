@@ -31,7 +31,7 @@ using CurlPtr = std::unique_ptr<CURL, decltype(&curl_easy_cleanup)>;
 
 CurlPtr configure(const Account& account, char* errorBuffer) {
     CurlPtr curl(curl_easy_init(), &curl_easy_cleanup);
-    if (!curl) throw std::runtime_error("curl_easy_init misslyckades");
+    if (!curl) throw std::runtime_error("curl_easy_init failed");
 
     Security sec = parseSecurity(account.smtpSecurity);
     std::string url = (sec == Security::Tls ? "smtps://" : "smtp://") + account.smtpHost + ":" +
@@ -49,7 +49,7 @@ CurlPtr configure(const Account& account, char* errorBuffer) {
     const std::string& user = account.smtpUsername.empty() ? account.username : account.smtpUsername;
     if (account.usesGoogleOAuth()) {
         // XOAUTH2: access-token hämtas av anroparen (GoogleOAuth) och sätts på kontot.
-        if (account.oauthAccessToken.empty()) throw MailServerError("Google-inloggning saknas för SMTP");
+        if (account.oauthAccessToken.empty()) throw MailServerError("Google sign-in is missing for SMTP");
         curl_easy_setopt(c, CURLOPT_USERNAME, account.username.c_str());
         curl_easy_setopt(c, CURLOPT_XOAUTH2_BEARER, account.oauthAccessToken.c_str());
         curl_easy_setopt(c, CURLOPT_LOGIN_OPTIONS, "AUTH=XOAUTH2");
@@ -70,7 +70,7 @@ std::string angle(const std::string& addr) {
 
 void smtpSend(const Account& account, const std::string& from, const std::vector<std::string>& recipients,
               const std::string& message) {
-    if (recipients.empty()) throw BadRequest("Minst en mottagare krävs");
+    if (recipients.empty()) throw BadRequest("At least one recipient is required");
 
     char errorBuffer[CURL_ERROR_SIZE] = {0};
     CurlPtr curl = configure(account, errorBuffer);
@@ -93,7 +93,7 @@ void smtpSend(const Account& account, const std::string& from, const std::vector
     CURLcode rc = curl_easy_perform(c);
     if (rc != CURLE_OK) {
         std::string detail = errorBuffer[0] ? errorBuffer : curl_easy_strerror(rc);
-        throw MailServerError("Kunde inte skicka via SMTP: " + detail);
+        throw MailServerError("Could not send via SMTP: " + detail);
     }
 }
 
@@ -107,7 +107,7 @@ void smtpTest(const Account& account) {
     CURLcode rc = curl_easy_perform(c);
     if (rc != CURLE_OK) {
         std::string detail = errorBuffer[0] ? errorBuffer : curl_easy_strerror(rc);
-        throw MailServerError("SMTP-test misslyckades: " + detail);
+        throw MailServerError("SMTP test failed: " + detail);
     }
 }
 

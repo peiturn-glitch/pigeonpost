@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { editorToText, imageToDataUrl, sanitizeHtml, CELL_STYLE, QUOTE_STYLE, TABLE_STYLE } from '../richtext'
 import Icon from './Icon.vue'
+import { t } from '../i18n'
 
 // Redigerare för formaterad text. Innehållet sätts en gång (initialHtml ska redan vara tvättad med sanitizeHtml)
 // och läses sedan med getHtml() och getText(), så att markören inte störs av omritningar.
@@ -24,22 +25,22 @@ let savedRange = null
 const colors = ['#000000', '#5b5b66', '#c50042', '#e8590c', '#e8a200', '#017a40', '#0061e0', '#6f42c1', '#ffffff']
 const highlights = ['transparent', '#fff3a3', '#ffd6a5', '#ffc9de', '#c8f7c5', '#c5e4ff', '#e4d4ff']
 const sizes = [
-  { label: 'Liten', value: '2' },
+  { label: 'Small', value: '2' },
   { label: 'Normal', value: '3' },
-  { label: 'Stor', value: '5' },
-  { label: 'Störst', value: '6' },
+  { label: 'Large', value: '5' },
+  { label: 'Largest', value: '6' },
 ]
 const blocks = [
-  { label: 'Brödtext', value: 'p' },
-  { label: 'Rubrik 1', value: 'h1' },
-  { label: 'Rubrik 2', value: 'h2' },
-  { label: 'Rubrik 3', value: 'h3' },
-  { label: 'Fast bredd', value: 'pre' },
+  { label: 'Body text', value: 'p' },
+  { label: 'Heading 1', value: 'h1' },
+  { label: 'Heading 2', value: 'h2' },
+  { label: 'Heading 3', value: 'h3' },
+  { label: 'Monospace', value: 'pre' },
 ]
 const fonts = [
-  { label: 'Standard', value: 'Helvetica, Arial, sans-serif' },
+  { label: 'Default', value: 'Helvetica, Arial, sans-serif' },
   { label: 'Serif', value: 'Georgia, "Times New Roman", serif' },
-  { label: 'Fast bredd', value: '"Courier New", monospace' },
+  { label: 'Monospace', value: '"Courier New", monospace' },
 ]
 
 function exec(command, value = null) {
@@ -92,12 +93,12 @@ function addLink() {
   saveSelection()
   const selection = window.getSelection()
   const existing = selection.anchorNode?.parentElement?.closest('a')
-  const url = window.prompt('Länkens adress:', existing?.getAttribute('href') || 'https://')
+  const url = window.prompt(t('Link address:'), existing?.getAttribute('href') || 'https://')
   if (url === null) return
   const href = url.trim()
   if (!href || href === 'https://') return exec('unlink')
   if (!/^(https?:|mailto:)/i.test(href)) {
-    emit('error', 'Länken måste börja med https://, http:// eller mailto:')
+    emit('error', t('The link must start with https://, http:// or mailto:'))
     return
   }
   if (savedRange?.collapsed && !existing) exec('insertHTML', `<a href="${href.replace(/"/g, '&quot;')}">${href.replace(/</g, '&lt;')}</a>`)
@@ -289,25 +290,25 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
 <template>
   <div class="rich" :class="{ compact }">
     <div class="format-bar" @mousedown="$event.target.tagName !== 'SELECT' && $event.preventDefault()">
-      <select class="pick" title="Stycketyp" @mousedown="saveSelection" @change="onSelect('formatBlock', $event)">
-        <option value="">Stycke</option>
-        <option v-for="b in blocks" :key="b.value" :value="b.value">{{ b.label }}</option>
+      <select class="pick" :title="t('Paragraph style')" @mousedown="saveSelection" @change="onSelect('formatBlock', $event)">
+        <option value="">{{ t('Paragraph') }}</option>
+        <option v-for="b in blocks" :key="b.value" :value="b.value">{{ t(b.label) }}</option>
       </select>
-      <select class="pick" title="Typsnitt" @mousedown="saveSelection" @change="onSelect('fontName', $event)">
-        <option value="">Typsnitt</option>
-        <option v-for="f in fonts" :key="f.label" :value="f.value">{{ f.label }}</option>
+      <select class="pick" :title="t('Font')" @mousedown="saveSelection" @change="onSelect('fontName', $event)">
+        <option value="">{{ t('Font') }}</option>
+        <option v-for="f in fonts" :key="f.label" :value="f.value">{{ t(f.label) }}</option>
       </select>
-      <select class="pick" title="Textstorlek" @mousedown="saveSelection" @change="onSelect('fontSize', $event)">
-        <option value="">Storlek</option>
-        <option v-for="s in sizes" :key="s.value" :value="s.value">{{ s.label }}</option>
+      <select class="pick" :title="t('Text size')" @mousedown="saveSelection" @change="onSelect('fontSize', $event)">
+        <option value="">{{ t('Size') }}</option>
+        <option v-for="s in sizes" :key="s.value" :value="s.value">{{ t(s.label) }}</option>
       </select>
       <span class="sep" />
-      <button type="button" :class="{ on: active.bold }" title="Fet (Ctrl+B)" @click="exec('bold')"><b>F</b></button>
-      <button type="button" :class="{ on: active.italic }" title="Kursiv (Ctrl+I)" @click="exec('italic')"><i>K</i></button>
-      <button type="button" :class="{ on: active.underline }" title="Understruken (Ctrl+U)" @click="exec('underline')"><u>U</u></button>
-      <button type="button" :class="{ on: active.strikeThrough }" title="Genomstruken" @click="exec('strikeThrough')"><s>S</s></button>
+      <button type="button" :class="{ on: active.bold }" :title="t('Bold (Ctrl+B)')" @click="exec('bold')"><b>{{ t('B') }}</b></button>
+      <button type="button" :class="{ on: active.italic }" :title="t('Italic (Ctrl+I)')" @click="exec('italic')"><i>{{ t('I') }}</i></button>
+      <button type="button" :class="{ on: active.underline }" :title="t('Underline (Ctrl+U)')" @click="exec('underline')"><u>U</u></button>
+      <button type="button" :class="{ on: active.strikeThrough }" :title="t('Strikethrough')" @click="exec('strikeThrough')"><s>S</s></button>
       <div class="palette-wrap">
-        <button type="button" title="Textfärg" @click="palette = palette === 'foreColor' ? null : 'foreColor'">
+        <button type="button" :title="t('Text color')" @click="palette = palette === 'foreColor' ? null : 'foreColor'">
           <span class="color-a">A</span>
         </button>
         <div v-if="palette === 'foreColor'" class="palette">
@@ -315,7 +316,7 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
         </div>
       </div>
       <div class="palette-wrap">
-        <button type="button" title="Överstrykning" @click="palette = palette === 'hiliteColor' ? null : 'hiliteColor'">
+        <button type="button" :title="t('Highlight')" @click="palette = palette === 'hiliteColor' ? null : 'hiliteColor'">
           <span class="color-bg">A</span>
         </button>
         <div v-if="palette === 'hiliteColor'" class="palette">
@@ -326,39 +327,39 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
             class="swatch"
             :class="{ none: c === 'transparent' }"
             :style="{ background: c }"
-            :title="c === 'transparent' ? 'Ingen' : c"
+            :title="c === 'transparent' ? t('None') : c"
             @click="exec('hiliteColor', c)"
           />
         </div>
       </div>
       <span class="sep" />
-      <button type="button" :class="{ on: active.insertUnorderedList }" title="Punktlista" @click="exec('insertUnorderedList')"><Icon name="listBullets" /></button>
-      <button type="button" :class="{ on: active.insertOrderedList }" title="Numrerad lista" @click="exec('insertOrderedList')"><Icon name="listNumbers" /></button>
-      <button type="button" title="Minska indrag" @click="exec('outdent')"><Icon name="outdent" /></button>
-      <button type="button" title="Öka indrag" @click="exec('indent')"><Icon name="indent" /></button>
-      <button type="button" title="Citat" @click="toggleQuote"><Icon name="quote" /></button>
+      <button type="button" :class="{ on: active.insertUnorderedList }" :title="t('Bulleted list')" @click="exec('insertUnorderedList')"><Icon name="listBullets" /></button>
+      <button type="button" :class="{ on: active.insertOrderedList }" :title="t('Numbered list')" @click="exec('insertOrderedList')"><Icon name="listNumbers" /></button>
+      <button type="button" :title="t('Decrease indent')" @click="exec('outdent')"><Icon name="outdent" /></button>
+      <button type="button" :title="t('Increase indent')" @click="exec('indent')"><Icon name="indent" /></button>
+      <button type="button" :title="t('Quote')" @click="toggleQuote"><Icon name="quote" /></button>
       <span class="sep" />
-      <button type="button" title="Vänsterställ" @click="exec('justifyLeft')"><Icon name="alignLeft" /></button>
-      <button type="button" title="Centrera" @click="exec('justifyCenter')"><Icon name="alignCenter" /></button>
-      <button type="button" title="Högerställ" @click="exec('justifyRight')"><Icon name="alignRight" /></button>
+      <button type="button" :title="t('Align left')" @click="exec('justifyLeft')"><Icon name="alignLeft" /></button>
+      <button type="button" :title="t('Center')" @click="exec('justifyCenter')"><Icon name="alignCenter" /></button>
+      <button type="button" :title="t('Align right')" @click="exec('justifyRight')"><Icon name="alignRight" /></button>
       <span class="sep" />
-      <button type="button" title="Länk (Ctrl+K)" @click="addLink"><Icon name="link" /></button>
-      <button type="button" title="Infoga bild" @click="saveSelection(); imageInput.click()"><Icon name="image" /></button>
+      <button type="button" :title="t('Link (Ctrl+K)')" @click="addLink"><Icon name="link" /></button>
+      <button type="button" :title="t('Insert image')" @click="saveSelection(); imageInput.click()"><Icon name="image" /></button>
       <div class="palette-wrap">
-        <button type="button" title="Tabell" @click="openTableMenu"><Icon name="table" /></button>
+        <button type="button" :title="t('Table')" @click="openTableMenu"><Icon name="table" /></button>
         <div v-if="palette === 'table'" class="palette table-menu">
           <template v-if="inTable">
-            <button type="button" @click="tableOp('rowAbove')">Infoga rad ovanför</button>
-            <button type="button" @click="tableOp('rowBelow')">Infoga rad nedanför</button>
-            <button type="button" @click="tableOp('colLeft')">Infoga kolumn till vänster</button>
-            <button type="button" @click="tableOp('colRight')">Infoga kolumn till höger</button>
+            <button type="button" @click="tableOp('rowAbove')">{{ t('Insert row above') }}</button>
+            <button type="button" @click="tableOp('rowBelow')">{{ t('Insert row below') }}</button>
+            <button type="button" @click="tableOp('colLeft')">{{ t('Insert column to the left') }}</button>
+            <button type="button" @click="tableOp('colRight')">{{ t('Insert column to the right') }}</button>
             <hr />
-            <button type="button" @click="tableOp('deleteRow')">Ta bort raden</button>
-            <button type="button" @click="tableOp('deleteCol')">Ta bort kolumnen</button>
-            <button type="button" class="danger" @click="tableOp('deleteTable')">Ta bort tabellen</button>
+            <button type="button" @click="tableOp('deleteRow')">{{ t('Delete row') }}</button>
+            <button type="button" @click="tableOp('deleteCol')">{{ t('Delete column') }}</button>
+            <button type="button" class="danger" @click="tableOp('deleteTable')">{{ t('Delete table') }}</button>
             <hr />
           </template>
-          <div class="grid-label">{{ grid.rows ? `Ny tabell: ${grid.rows} × ${grid.cols}` : 'Ny tabell' }}</div>
+          <div class="grid-label">{{ grid.rows ? t('New table: {rows} × {cols}', { rows: grid.rows, cols: grid.cols }) : t('New table') }}</div>
           <div class="grid" @mouseleave="grid.rows = 0; grid.cols = 0">
             <template v-for="r in GRID_ROWS" :key="r">
               <button
@@ -375,8 +376,8 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
           </div>
         </div>
       </div>
-      <button type="button" title="Vågrät linje" @click="exec('insertHorizontalRule')"><Icon name="rule" /></button>
-      <button type="button" title="Ta bort formatering" @click="exec('removeFormat')"><Icon name="clearFormat" /></button>
+      <button type="button" :title="t('Horizontal line')" @click="exec('insertHorizontalRule')"><Icon name="rule" /></button>
+      <button type="button" :title="t('Clear formatting')" @click="exec('removeFormat')"><Icon name="clearFormat" /></button>
       <input ref="imageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @change="insertImages($event.target.files); $event.target.value = ''" />
     </div>
     <div
@@ -386,7 +387,7 @@ onBeforeUnmount(() => document.removeEventListener('selectionchange', onSelectio
       spellcheck="true"
       role="textbox"
       aria-multiline="true"
-      aria-label="Meddelande"
+      :aria-label="t('Message')"
       @input="emit('change')"
       @paste="onPaste"
       @keydown="onKeydown"

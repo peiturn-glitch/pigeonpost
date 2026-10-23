@@ -2,7 +2,7 @@
 
 A self-hosted web email client in the spirit of Thunderbird, with a companion Android app. The server is written in C++20 and the web client in Vue 3. Everything runs in one Docker container plus MariaDB, and connects to your existing mail accounts over IMAP and SMTP: Gmail, iCloud, Fastmail, your own server, and so on.
 
-The user interface is in Swedish. The full handbook is in Swedish too: [docs/README.sv.md](docs/README.sv.md). This page covers what the software does and how to run it.
+The user interface is in English by default, with Swedish available from the sign-in page and the layout settings (the choice is stored in the browser). The full handbook is in Swedish: [docs/README.sv.md](docs/README.sv.md). This page covers what the software does and how to run it.
 
 ## What it does
 

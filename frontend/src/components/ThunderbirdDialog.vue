@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api, thunderbirdExportUrl } from '../api'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
 import { readPrefsFromZip } from '../zipreader'
 import GoogleSignIn from './GoogleSignIn.vue'
@@ -17,7 +18,8 @@ const accounts = ref([]) // förhandsgranskade konton, med val och lösenord
 const skipped = ref([])
 const testConnections = ref(true)
 
-const securityNames = { tls: 'SSL/TLS', starttls: 'STARTTLS', none: 'okrypterad' }
+// Översätts med t() vid visning.
+const securityNames = { tls: 'SSL/TLS', starttls: 'STARTTLS', none: 'unencrypted' }
 
 const selected = computed(() => accounts.value.filter((a) => a.selected))
 const canImport = computed(
@@ -66,7 +68,7 @@ async function onFile(event) {
     }))
     skipped.value = preview.skipped
     if (!accounts.value.length && !skipped.value.length) {
-      error.value = 'Hittade inga e-postkonton i filen.'
+      error.value = t('No email accounts were found in the file.')
       return
     }
     step.value = 'preview'
@@ -105,7 +107,9 @@ async function importAccount(account) {
       }
     }
     account.status = 'ok'
-    account.message = failures.length ? `Importerat, men några avsändare misslyckades: ${failures.join('; ')}` : 'Importerat'
+    account.message = failures.length
+      ? t('Imported, but some senders failed: {details}', { details: failures.join('; ') })
+      : t('Imported')
     account.selected = false
   } catch (e) {
     account.status = 'error'
@@ -124,7 +128,7 @@ async function runImport() {
   await store.loadAccounts()
   await Promise.all(store.accounts.map((a) => store.loadFolders(a.id)))
   const done = accounts.value.filter((a) => a.status === 'ok').length
-  if (done) store.notify(`${done} konto(n) importerades`)
+  if (done) store.notify(done === 1 ? t('1 account was imported') : t('{n} accounts were imported', { n: done }))
 }
 
 async function retryWithoutTest(account) {
@@ -157,31 +161,34 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop">
     <div class="modal tb">
       <div class="modal-header">
-        <h2>Importera och exportera (Thunderbird-format)</h2>
-        <button class="btn ghost" title="Stäng" :disabled="importing" @click="close"><Icon name="close" /></button>
+        <h2>{{ t('Import and export (Thunderbird format)') }}</h2>
+        <button class="btn ghost" :title="t('Close')" :disabled="importing" @click="close"><Icon name="close" /></button>
       </div>
 
       <div class="content">
         <template v-if="step === 'choose'">
           <section>
-            <h3><Icon name="download" /> Exportera till Thunderbird</h3>
+            <h3><Icon name="download" /> {{ t('Export to Thunderbird') }}</h3>
             <p class="muted">
-              Laddar ned en zip-fil med <code>prefs.js</code> som innehåller dina e-postkonton, avsändare, servrar och signaturer.
-              I Thunderbird väljer du <strong>Verktyg → Importera</strong>, sedan <strong>Thunderbird</strong> och exportfilen (zip),
-              och bockar i <strong>Konton och inställningar</strong>. Lösenord ingår inte, så Thunderbird frågar efter dem första gången.
+              {{ t('Downloads a zip file with a') }} <code>prefs.js</code>
+              {{ t('containing your email accounts, senders, servers and signatures.') }}
+              {{ t('In Thunderbird, choose') }} <strong>{{ t('Tools → Import') }}</strong>, {{ t('then') }} <strong>Thunderbird</strong>
+              {{ t('and the export file (zip), and tick') }} <strong>{{ t('Accounts and settings') }}</strong>.
+              {{ t('Passwords are not included, so Thunderbird asks for them the first time.') }}
             </p>
-            <a class="btn primary" :href="thunderbirdExportUrl" download>Ladda ned inställningar</a>
+            <a class="btn primary" :href="thunderbirdExportUrl" download>{{ t('Download settings') }}</a>
           </section>
 
           <section>
-            <h3><Icon name="inbox" /> Importera från Thunderbird</h3>
+            <h3><Icon name="inbox" /> {{ t('Import from Thunderbird') }}</h3>
             <p class="muted">
-              Välj en export från Thunderbird (<strong>Verktyg → Exportera</strong>, en zip-fil) eller filen <code>prefs.js</code> från
-              profilmappen (<strong>Hjälp → Felsökningsinformation → Profilmapp</strong>). Zip-filen läses i webbläsaren och bara
-              inställningarna skickas till servern, så din e-post laddas inte upp.
+              {{ t('Choose an export from Thunderbird') }} (<strong>{{ t('Tools → Export') }}</strong>, {{ t('a zip file') }})
+              {{ t('or the file') }} <code>prefs.js</code> {{ t('from the profile folder') }}
+              (<strong>{{ t('Help → Troubleshooting Information → Profile Folder') }}</strong>).
+              {{ t('The zip file is read in the browser and only the settings are sent to the server, so your email is not uploaded.') }}
             </p>
             <label class="btn primary file" :class="{ disabled: reading }">
-              {{ reading ? 'Läser…' : 'Välj fil…' }}
+              {{ reading ? t('Reading…') : t('Choose file…') }}
               <input type="file" accept=".zip,.js,application/zip" :disabled="reading" hidden @change="onFile" />
             </label>
           </section>
@@ -189,8 +196,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
         <template v-else>
           <p class="muted">
-            Från <strong>{{ fileName }}</strong>. Lösenord finns inte i Thunderbirds inställningsfil, så ange lösenord eller logga in med
-            Google för de konton du vill importera.
+            {{ t('From') }} <strong>{{ fileName }}</strong>.
+            {{ t("Passwords are not stored in Thunderbird's settings file, so enter a password or sign in with Google for the accounts you want to import.") }}
           </p>
 
           <div v-for="account in accounts" :key="account.sourceKey" class="account" :class="account.status">
@@ -200,20 +207,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                 <strong>{{ account.name || account.email }}</strong>
                 <span class="muted"> &lt;{{ account.email }}&gt;</span>
               </span>
-              <span v-if="account.alreadyExists && account.status !== 'ok'" class="badge">Finns redan</span>
-              <span v-if="account.status === 'ok'" class="badge ok">Importerat</span>
+              <span v-if="account.alreadyExists && account.status !== 'ok'" class="badge">{{ t('Already exists') }}</span>
+              <span v-if="account.status === 'ok'" class="badge ok">{{ t('Imported') }}</span>
             </label>
 
             <div class="details muted">
-              IMAP {{ account.imapHost }}:{{ account.imapPort }} ({{ securityNames[account.imapSecurity] }}) ·
-              SMTP {{ account.smtpHost }}:{{ account.smtpPort }} ({{ securityNames[account.smtpSecurity] }}) ·
-              användare {{ account.username }}
+              IMAP {{ account.imapHost }}:{{ account.imapPort }} ({{ t(securityNames[account.imapSecurity]) }}) ·
+              SMTP {{ account.smtpHost }}:{{ account.smtpPort }} ({{ t(securityNames[account.smtpSecurity]) }}) ·
+              {{ t('user {name}', { name: account.username }) }}
             </div>
             <ul v-if="account.identities.length" class="identities">
               <li v-for="identity in account.identities" :key="identity.email">
                 <span>
-                  Avsändare: {{ identity.name }} &lt;{{ identity.email }}&gt;
-                  <span class="muted">{{ identity.useAccountSmtp ? '' : `· egen SMTP ${identity.smtpHost}:${identity.smtpPort}` }}</span>
+                  {{ t('Sender:') }} {{ identity.name }} &lt;{{ identity.email }}&gt;
+                  <span class="muted">{{ identity.useAccountSmtp ? '' : t('· own SMTP {server}', { server: `${identity.smtpHost}:${identity.smtpPort}` }) }}</span>
                 </span>
                 <input
                   v-if="account.selected && needsOwnPassword(account, identity)"
@@ -221,7 +228,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                   class="input small"
                   type="password"
                   autocomplete="new-password"
-                  :placeholder="`SMTP-lösenord för ${identity.smtpUsername}`"
+                  :placeholder="t('SMTP password for {user}', { user: identity.smtpUsername })"
                 />
               </li>
             </ul>
@@ -231,14 +238,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
             <div v-if="account.selected" class="password">
               <template v-if="account.oauthProvider === 'google' && googleConfigured">
-                <label class="radio"><input v-model="account.useGoogle" type="radio" :value="true" :disabled="importing" /> Logga in med Google</label>
-                <label class="radio"><input v-model="account.useGoogle" type="radio" :value="false" :disabled="importing" /> Lösenord eller app-lösenord</label>
+                <label class="radio"><input v-model="account.useGoogle" type="radio" :value="true" :disabled="importing" /> {{ t('Sign in with Google') }}</label>
+                <label class="radio"><input v-model="account.useGoogle" type="radio" :value="false" :disabled="importing" /> {{ t('Password or app password') }}</label>
               </template>
               <div v-if="account.useGoogle" class="google">
-                <p v-if="account.googleEmail" class="ok-text">✓ Inloggad som {{ account.googleEmail }}</p>
+                <p v-if="account.googleEmail" class="ok-text">✓ {{ t('Signed in as {email}', { email: account.googleEmail }) }}</p>
                 <GoogleSignIn
                   :login-hint="account.email"
-                  :label="account.googleEmail ? 'Logga in igen' : 'Logga in med Google'"
+                  :label="account.googleEmail ? t('Sign in again') : t('Sign in with Google')"
                   :disabled="importing"
                   @signed-in="(result) => onGoogleSignedIn(account, result)"
                 />
@@ -249,22 +256,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                 class="input"
                 type="password"
                 autocomplete="new-password"
-                :placeholder="`Lösenord för ${account.username}`"
+                :placeholder="t('Password for {user}', { user: account.username })"
                 :disabled="importing"
               />
             </div>
 
             <p v-if="account.message" :class="account.status === 'error' ? 'error-text' : 'ok-text'" class="message">
-              {{ account.status === 'working' ? 'Importerar…' : account.message }}
+              {{ account.status === 'working' ? t('Importing…') : account.message }}
               <button v-if="account.status === 'error' && account.canSkipTest" class="btn small-btn" :disabled="importing" @click="retryWithoutTest(account)">
-                Importera ändå
+                {{ t('Import anyway') }}
               </button>
             </p>
-            <p v-else-if="account.status === 'working'" class="muted message">Importerar…</p>
+            <p v-else-if="account.status === 'working'" class="muted message">{{ t('Importing…') }}</p>
           </div>
 
           <div v-if="skipped.length" class="skipped">
-            <h3>Hoppas över</h3>
+            <h3>{{ t('Skipped') }}</h3>
             <ul>
               <li v-for="s in skipped" :key="s.name + s.type">{{ s.name }} <span class="muted">– {{ s.reason }}</span></li>
             </ul>
@@ -275,15 +282,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
       </div>
 
       <div v-if="step === 'preview'" class="modal-footer">
-        <button class="btn" :disabled="importing" @click="reset">Välj annan fil</button>
+        <button class="btn" :disabled="importing" @click="reset">{{ t('Choose another file') }}</button>
         <label class="check">
           <input v-model="testConnections" type="checkbox" :disabled="importing" />
-          Testa anslutningarna
+          {{ t('Test the connections') }}
         </label>
         <div class="spacer" />
-        <button class="btn" :disabled="importing" @click="close">Stäng</button>
+        <button class="btn" :disabled="importing" @click="close">{{ t('Close') }}</button>
         <button class="btn primary" :disabled="importing || !canImport" @click="runImport">
-          {{ importing ? 'Importerar…' : `Importera ${selected.length} konto(n)` }}
+          {{ importing ? t('Importing…') : selected.length === 1 ? t('Import 1 account') : t('Import {n} accounts', { n: selected.length }) }}
         </button>
       </div>
     </div>

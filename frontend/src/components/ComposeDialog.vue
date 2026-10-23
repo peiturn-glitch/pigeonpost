@@ -6,6 +6,7 @@ import { formatSize } from '../utils'
 import { SIGNATURE_CLASS, signatureHtml, textToHtml } from '../richtext'
 import Icon from './Icon.vue'
 import RichEditor from './RichEditor.vue'
+import { t } from '../i18n'
 
 const store = useMailStore()
 const draft = store.compose
@@ -73,13 +74,13 @@ const toInput = ref(null)
 const bodyInput = ref(null)
 const fileInput = ref(null)
 
-const title = computed(() => form.subject || 'Nytt meddelande')
+const title = computed(() => form.subject || t('New message'))
 const dirty = computed(() => JSON.stringify(form) !== initial || htmlDirty.value || files.value.length > 0)
 
 async function toggleMode() {
   if (mode.value === 'html') {
     const formatted = editor.value.element().querySelector('b, i, u, s, strong, em, font, span[style], h1, h2, h3, ul, ol, img, a, pre, hr, table')
-    if (formatted && !window.confirm('Byta till ren text? Formatering och infogade bilder försvinner.')) return
+    if (formatted && !window.confirm(t('Switch to plain text? Formatting and inserted images will be lost.'))) return
     form.text = editor.value.getText()
     mode.value = 'text'
   } else {
@@ -131,16 +132,16 @@ function payload() {
 
 async function send() {
   if (!form.to.trim() && !form.cc.trim() && !form.bcc.trim()) {
-    error.value = 'Ange minst en mottagare.'
+    error.value = t('Enter at least one recipient.')
     return
   }
-  if (!form.subject.trim() && !window.confirm('Meddelandet saknar ämne. Skicka ändå?')) return
+  if (!form.subject.trim() && !window.confirm(t('The message has no subject. Send anyway?'))) return
   busy.value = true
   error.value = ''
   try {
     const target = accountId.value
     const result = await api.send(target, payload(), files.value)
-    store.notify('Meddelandet skickades')
+    store.notify(t('Message sent'))
     for (const w of result.warnings || []) store.notify(w, 'error')
     store.compose = null
     store.onMessageSent(target)
@@ -158,7 +159,7 @@ async function saveDraft() {
     const target = accountId.value
     const result = await api.saveDraft(target, payload(), files.value)
     draftRef.value = result.uid ? { folder: result.folder, uid: result.uid, accountId: target } : null
-    store.notify('Utkastet sparades')
+    store.notify(t('Draft saved'))
     store.onMessageSent(target)
   } catch (e) {
     error.value = e.message
@@ -168,7 +169,7 @@ async function saveDraft() {
 }
 
 function close() {
-  if (dirty.value && !window.confirm('Stäng utan att skicka? Osparade ändringar går förlorade.')) return
+  if (dirty.value && !window.confirm(t('Close without sending? Unsaved changes will be lost.'))) return
   store.compose = null
 }
 
@@ -205,58 +206,58 @@ function onKeydown(event) {
     >
       <div class="modal-header">
         <h2>{{ title }}</h2>
-        <button class="btn ghost" title="Stäng" @click="close"><Icon name="close" /></button>
+        <button class="btn ghost" :title="t('Close')" @click="close"><Icon name="close" /></button>
       </div>
 
       <div class="toolbar">
-        <button class="btn primary" :disabled="busy" title="Skicka (Ctrl+Enter)" @click="send">
-          <Icon name="sent" /> {{ busy ? 'Arbetar…' : 'Skicka' }}
+        <button class="btn primary" :disabled="busy" :title="t('Send (Ctrl+Enter)')" @click="send">
+          <Icon name="sent" /> {{ busy ? t('Working…') : t('Send') }}
         </button>
-        <button class="btn" :disabled="busy" title="Spara utkast (Ctrl+S)" @click="saveDraft">Spara utkast</button>
-        <button class="btn" :disabled="busy" @click="fileInput.click()"><Icon name="paperclip" /> Bifoga</button>
+        <button class="btn" :disabled="busy" :title="t('Save draft (Ctrl+S)')" @click="saveDraft">{{ t('Save draft') }}</button>
+        <button class="btn" :disabled="busy" @click="fileInput.click()"><Icon name="paperclip" /> {{ t('Attach') }}</button>
         <button
           class="btn mode"
           :class="{ active: mode === 'html' }"
-          :title="mode === 'html' ? 'Formaterad text är på. Klicka för att skriva i ren text.' : 'Skriv med formatering: fetstil, listor, färger, länkar och bilder'"
+          :title="mode === 'html' ? t('Rich text is on. Click to write in plain text.') : t('Write with formatting: bold, lists, colors, links and images')"
           @click="toggleMode"
         >
-          <Icon name="textFormat" /> Formatering
+          <Icon name="textFormat" /> {{ t('Formatting') }}
         </button>
         <input ref="fileInput" type="file" multiple hidden @change="addFiles($event.target.files); $event.target.value = ''" />
       </div>
 
       <div class="fields">
-        <label>Från</label>
+        <label>{{ t('From') }}</label>
         <div class="with-extras">
-        <select v-model="form.senderKey" class="input" title="Välj vilken adress och server meddelandet skickas från">
+        <select v-model="form.senderKey" class="input" :title="t('Choose which address and server the message is sent from')">
           <optgroup v-for="a in store.accounts" :key="a.id" :label="a.email">
             <option v-for="s in store.senders.filter((x) => x.accountId === a.id)" :key="s.key" :value="s.key">
               {{ s.name }} &lt;{{ s.email }}&gt;{{ s.via ? ` · via ${s.via}` : '' }}
             </option>
           </optgroup>
         </select>
-          <button class="link" title="Lägg till eller ändra avsändare för kontot" @click="store.accountDialog = { ...store.account(accountId) }">
-            Hantera avsändare
+          <button class="link" :title="t('Add or edit senders for this account')" @click="store.accountDialog = { ...store.account(accountId) }">
+            {{ t('Manage senders') }}
           </button>
         </div>
 
-        <label>Till</label>
+        <label>{{ t('To') }}</label>
         <div class="with-extras">
-          <input ref="toInput" v-model="form.to" class="input" type="text" placeholder="namn@exempel.se, …" />
-          <button v-if="!showCc" class="link" @click="showCc = true">Kopia</button>
-          <button v-if="!showBcc" class="link" @click="showBcc = true">Dold kopia</button>
+          <input ref="toInput" v-model="form.to" class="input" type="text" :placeholder="t('name@example.com, …')" />
+          <button v-if="!showCc" class="link" @click="showCc = true">{{ t('Cc') }}</button>
+          <button v-if="!showBcc" class="link" @click="showBcc = true">{{ t('Bcc') }}</button>
         </div>
 
         <template v-if="showCc">
-          <label>Kopia</label>
+          <label>{{ t('Cc') }}</label>
           <input v-model="form.cc" class="input" type="text" />
         </template>
         <template v-if="showBcc">
-          <label>Dold kopia</label>
+          <label>{{ t('Bcc') }}</label>
           <input v-model="form.bcc" class="input" type="text" />
         </template>
 
-        <label>Ämne</label>
+        <label>{{ t('Subject') }}</label>
         <input v-model="form.subject" class="input" type="text" />
       </div>
 
@@ -271,12 +272,12 @@ function onKeydown(event) {
       <textarea v-else ref="bodyInput" v-model="form.text" class="body" spellcheck="true" />
 
       <div v-if="files.length || draft.forwardedAttachments.length" class="attachments">
-        <span v-for="a in draft.forwardedAttachments" :key="'fwd' + a.index" class="chip" title="Följer med från originalmeddelandet">
+        <span v-for="a in draft.forwardedAttachments" :key="'fwd' + a.index" class="chip" :title="t('Carried over from the original message')">
           <Icon name="paperclip" :size="12" /> {{ a.filename }} <span class="muted">{{ formatSize(a.size) }}</span>
         </span>
         <span v-for="(f, i) in files" :key="i" class="chip">
           <Icon name="paperclip" :size="12" /> {{ f.name }} <span class="muted">{{ formatSize(f.size) }}</span>
-          <button class="remove" title="Ta bort bilaga" @click="files.splice(i, 1)"><Icon name="close" :size="12" /></button>
+          <button class="remove" :title="t('Remove attachment')" @click="files.splice(i, 1)"><Icon name="close" :size="12" /></button>
         </span>
       </div>
 

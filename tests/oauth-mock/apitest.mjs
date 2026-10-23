@@ -59,7 +59,7 @@ log(first.status.data.ok === true && first.status.data.email === 'oauthtest@gmai
 const noCookieStatus = await fetch(APP + '/api/oauth/google/status?state=' + first.start.data.state)
 log(noCookieStatus.status === 401, 'status kräver sessionen', String(noCookieStatus.status))
 const replay = await fetch(first.browser.location, { redirect: 'manual' })
-log((await replay.text()).includes('misslyckades'), 'samma callback kan inte användas igen')
+log((await replay.text()).includes('failed'), 'samma callback kan inte användas igen')
 
 const accountBody = {
   authType: 'oauth-google', oauthState: first.start.data.state, email: '', name: '',
@@ -109,7 +109,7 @@ await fetch(MOCK + '/control/fail-next-imap-auth')
 await api('PUT', `/accounts/${accountId}`, { imapPort: 1143, skipTest: true })
 const t0 = Date.now()
 const rejected = await api('GET', `/accounts/${accountId}/folders`)
-log(rejected.status === 502 && /avvisades/.test(rejected.data.error) && /ack=""/.test(rejected.data.error) && Date.now() - t0 < 10000,
+log(rejected.status === 502 && /rejected/.test(rejected.data.error) && /ack=""/.test(rejected.data.error) && Date.now() - t0 < 10000,
   'avvisad token ger tydligt fel (tom kvittensrad skickades)', `${rejected.status} ${rejected.data.error} (${Date.now() - t0} ms)`)
 const recovered = await api('GET', `/accounts/${accountId}/folders`)
 log(recovered.status === 200, 'nästa försök lyckas igen')
@@ -120,7 +120,7 @@ log(/mail\.server\.server1\.authMethod", 10\)/.test(zip) && /mail\.smtpserver\.s
 
 // 7. Nekad inloggning
 const denied = await googleLogin('deny@gmail.com')
-log(denied.status.data.done && !denied.status.data.ok && /avbröts/.test(denied.status.data.error), 'nekad inloggning ger felmeddelande', JSON.stringify(denied.status.data))
+log(denied.status.data.done && !denied.status.data.ok && /cancelled/.test(denied.status.data.error), 'nekad inloggning ger felmeddelande', JSON.stringify(denied.status.data))
 
 // 8. Byte till lösenord återkallar behörigheten hos Google
 const second = await googleLogin('andra@gmail.com')
@@ -135,7 +135,7 @@ log(missingPassword.status === 400, 'byte till lösenord kräver lösenord', JSO
 await fetch(MOCK + '/control/revoke-all')
 await api('PUT', `/accounts/${accountId}`, { skipTest: true })
 const revoked = await api('GET', `/accounts/${accountId}/folders`)
-log(revoked.status === 502 && /logga in med Google igen/i.test(revoked.data.error), 'återkallad inloggning ber användaren logga in igen', revoked.data.error)
+log(revoked.status === 502 && /sign in with Google again/i.test(revoked.data.error), 'återkallad inloggning ber användaren logga in igen', revoked.data.error)
 
 // 10. Ny inloggning på befintligt konto
 const relogin = await googleLogin('oauthtest@gmail.com')

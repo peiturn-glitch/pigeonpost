@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { api } from '../api'
 import { useBulkAddresses } from '../bulkAddresses'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
 import { defaultPorts, mailPresets, presetForEmail } from '../utils'
 import BulkAddresses from './BulkAddresses.vue'
@@ -109,7 +110,7 @@ async function addIdentities(options) {
   }
   if (!created.length) return
   await store.loadAccounts()
-  store.notify(created.length === 1 ? 'Avsändaren lades till' : `${created.length} avsändare lades till`)
+  store.notify(created.length === 1 ? t('Sender added') : t('{n} senders were added', { n: created.length }))
   if (!bulkFailures.value.length) close()
 }
 
@@ -172,7 +173,7 @@ async function save(skipTest = false) {
     if (isNew) await api.createIdentity(account.id, body(skipTest))
     else await api.updateIdentity(account.id, form.id, body(skipTest))
     await store.loadAccounts()
-    store.notify(isNew ? 'Avsändaren lades till' : 'Avsändaren sparades')
+    store.notify(isNew ? t('Sender added') : t('Sender saved'))
     close()
   } catch (e) {
     error.value = e.message
@@ -193,114 +194,114 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop">
     <form class="modal identity" @submit.prevent="bulk.enabled ? addIdentities() : save(false)">
       <div class="modal-header">
-        <h2>{{ isNew ? 'Ny avsändare' : 'Redigera avsändare' }} · {{ account.email }}</h2>
-        <button type="button" class="btn ghost" title="Stäng" @click="close"><Icon name="close" /></button>
+        <h2>{{ isNew ? t('New sender') : t('Edit sender') }} · {{ account.email }}</h2>
+        <button type="button" class="btn ghost" :title="t('Close')" @click="close"><Icon name="close" /></button>
       </div>
 
       <div class="content">
         <label v-if="isNew" class="check bulk-toggle">
           <input v-model="bulk.enabled" type="checkbox" @change="onBulkToggle" />
           <span>
-            Flera adresser med samma inställningar
-            <span class="muted">– varje adress blir en egen avsändare</span>
+            {{ t('Several addresses with the same settings') }}
+            <span class="muted">{{ t('– each address becomes its own sender') }}</span>
           </span>
         </label>
 
         <section class="grid">
-          <label for="id-name">Namn</label>
-          <input id="id-name" v-model="form.name" class="input" placeholder="Förnamn Efternamn" />
+          <label for="id-name">{{ t('Name') }}</label>
+          <input id="id-name" v-model="form.name" class="input" :placeholder="t('First and last name')" />
           <template v-if="bulk.enabled">
-            <label for="id-emails">E-postadresser</label>
+            <label for="id-emails">{{ t('Email addresses') }}</label>
             <BulkAddresses :state="bulk" :parsed="bulkParsed" input-id="id-emails" @blur="guessFromBulk">
-              <template #hint>Namnet ovan används för de adresser som saknar eget namn.</template>
+              <template #hint>{{ t('The name above is used for addresses without a name of their own.') }}</template>
             </BulkAddresses>
           </template>
           <template v-else>
-            <label for="id-email">E-postadress</label>
+            <label for="id-email">{{ t('Email address') }}</label>
             <input id="id-email" v-model="form.email" class="input" type="email" required @blur="onEmailBlur" />
           </template>
-          <label for="id-replyto">Svarsadress</label>
-          <input id="id-replyto" v-model="form.replyTo" class="input" type="email" placeholder="Valfri, om svar ska gå till en annan adress" />
-          <label for="id-sig">Signatur</label>
+          <label for="id-replyto">{{ t('Reply-to address') }}</label>
+          <input id="id-replyto" v-model="form.replyTo" class="input" type="email" :placeholder="t('Optional, if replies should go to another address')" />
+          <label for="id-sig">{{ t('Signature') }}</label>
           <SignatureEditor v-model:text="form.signature" v-model:html="form.signatureHtml" input-id="id-sig" />
         </section>
 
         <section>
-          <h3>Utgående server</h3>
+          <h3>{{ t('Outgoing server') }}</h3>
           <label class="radio">
             <input v-model="form.useAccountSmtp" type="radio" :value="true" />
-            Använd kontots server ({{ account.smtpHost }}:{{ account.smtpPort }})
+            {{ t('Use the account server ({host}:{port})', { host: account.smtpHost, port: account.smtpPort }) }}
           </label>
           <label class="radio">
             <input v-model="form.useAccountSmtp" type="radio" :value="false" @change="onCustomSmtp" />
-            Egen SMTP-server
+            {{ t('Own SMTP server') }}
           </label>
           <p v-if="form.useAccountSmtp" class="muted small">
-            Många servrar tillåter bara avsändaradresser som hör till kontot. Välj egen SMTP-server om adressen tillhör en annan tjänst.
+            {{ t('Many servers only allow sender addresses that belong to the account. Choose your own SMTP server if the address belongs to another service.') }}
           </p>
 
           <div v-if="!form.useAccountSmtp" class="smtp">
             <div class="servers">
-              <span class="muted">Server</span>
-              <span class="muted">Port</span>
-              <span class="muted">Säkerhet</span>
-              <input v-model="form.smtpHost" class="input" placeholder="smtp.exempel.se" required />
+              <span class="muted">{{ t('Server') }}</span>
+              <span class="muted">{{ t('Port') }}</span>
+              <span class="muted">{{ t('Security') }}</span>
+              <input v-model="form.smtpHost" class="input" :placeholder="t('smtp.example.com')" required />
               <input v-model="form.smtpPort" class="input" type="number" min="1" max="65535" required />
               <select v-model="form.smtpSecurity" class="input" @change="form.smtpPort = defaultPorts.smtp[form.smtpSecurity]">
                 <option value="tls">SSL/TLS</option>
                 <option value="starttls">STARTTLS</option>
-                <option value="none">Ingen</option>
+                <option value="none">{{ t('None') }}</option>
               </select>
             </div>
             <div class="grid">
               <template v-if="bulk.enabled">
-                <span class="label">Användarnamn</span>
+                <span class="label">{{ t('Username') }}</span>
                 <div class="username-choice">
                   <label class="radio">
                     <input v-model="bulk.usernameMode" type="radio" value="address" />
-                    Adressen är användarnamn för varje avsändare
+                    {{ t('The address is the username for each sender') }}
                   </label>
                   <label class="radio">
                     <input v-model="bulk.usernameMode" type="radio" value="same" />
-                    Samma användarnamn för alla
+                    {{ t('Same username for all') }}
                   </label>
                   <input
                     v-if="bulk.usernameMode === 'same'"
                     v-model="form.smtpUsername"
                     class="input"
-                    placeholder="Tomt = ingen inloggning"
+                    :placeholder="t('Empty = no sign-in')"
                     autocomplete="off"
                     @input="usernameTouched = true"
                   />
                 </div>
               </template>
               <template v-else>
-                <label for="id-user">Användarnamn</label>
-                <input id="id-user" v-model="form.smtpUsername" class="input" placeholder="Tomt = ingen inloggning" autocomplete="off" @input="usernameTouched = true" />
+                <label for="id-user">{{ t('Username') }}</label>
+                <input id="id-user" v-model="form.smtpUsername" class="input" :placeholder="t('Empty = no sign-in')" autocomplete="off" @input="usernameTouched = true" />
               </template>
-              <label for="id-pass">Lösenord</label>
+              <label for="id-pass">{{ t('Password') }}</label>
               <input
                 id="id-pass"
                 v-model="form.smtpPassword"
                 class="input"
                 type="password"
                 autocomplete="new-password"
-                :placeholder="hasStoredPassword ? 'Oförändrat' : ''"
+                :placeholder="hasStoredPassword ? t('Unchanged') : ''"
                 :disabled="!bulk.enabled && !form.smtpUsername"
               />
             </div>
             <div class="row">
               <label class="check">
                 <input v-model="form.tlsVerify" type="checkbox" />
-                Verifiera servercertifikat
+                {{ t('Verify server certificate') }}
               </label>
               <select class="input preset" @change="applyPreset">
-                <option value="">Förinställning…</option>
+                <option value="">{{ t('Preset…') }}</option>
                 <option value="gmail">Gmail</option>
                 <option value="outlook">Outlook / Microsoft 365</option>
                 <option value="icloud">iCloud</option>
                 <option value="yahoo">Yahoo</option>
-                <option value="greenmail">Testserver</option>
+                <option value="greenmail">{{ t('Test server') }}</option>
               </select>
             </div>
           </div>
@@ -309,20 +310,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <template v-if="bulk.enabled">
           <label v-if="!form.useAccountSmtp" class="check">
             <input v-model="bulk.test" type="checkbox" />
-            Testa SMTP-inloggningen för varje adress
+            {{ t('Test the SMTP sign-in for each address') }}
           </label>
-          <BulkStatus :entries="bulk.entries" exists-text="Finns redan som avsändare" />
+          <BulkStatus :entries="bulk.entries" :exists-text="t('Already exists as a sender')" />
         </template>
 
         <p v-if="testResult" :class="testResult.ok ? 'ok' : 'error-text'">
-          SMTP: {{ testResult.ok ? 'anslutningen fungerar' : testResult.error }}
+          SMTP: {{ testResult.ok ? t('connection works') : testResult.error }}
         </p>
         <p v-if="error" class="error-text">{{ error }}</p>
       </div>
 
       <div class="modal-footer">
         <button type="button" class="btn" :disabled="busy || !canSubmit || form.useAccountSmtp" @click="test">
-          {{ bulk.enabled ? 'Testa första adressen' : 'Testa SMTP' }}
+          {{ bulk.enabled ? t('Test first address') : t('Test SMTP') }}
         </button>
         <template v-if="bulk.enabled">
           <button
@@ -332,16 +333,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             :disabled="busy"
             @click="addIdentities({ skipTest: true, onlyFailed: true })"
           >
-            Lägg till de misslyckade ändå
+            {{ t('Add the failed ones anyway') }}
           </button>
           <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
-            {{ busy ? 'Lägger till…' : `Lägg till ${bulkPending.length} avsändare` }}
+            {{ busy ? t('Adding…') : bulkPending.length === 1 ? t('Add 1 sender') : t('Add {n} senders', { n: bulkPending.length }) }}
           </button>
         </template>
         <template v-else>
-          <button v-if="testResult && !testResult.ok" type="button" class="btn" :disabled="busy" @click="save(true)">Spara ändå</button>
+          <button v-if="testResult && !testResult.ok" type="button" class="btn" :disabled="busy" @click="save(true)">{{ t('Save anyway') }}</button>
           <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
-            {{ busy ? 'Kontrollerar…' : isNew ? 'Lägg till' : 'Spara' }}
+            {{ busy ? t('Checking…') : isNew ? t('Add') : t('Save') }}
           </button>
         </template>
       </div>

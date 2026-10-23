@@ -1,32 +1,42 @@
 <script setup>
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { LANGUAGES, lang, setLanguage, t } from '../i18n'
 import { DEFAULT_LAYOUT, useMailStore } from '../store'
 import Icon from './Icon.vue'
 
 const store = useMailStore()
 const layout = store.layout
 
+// Labels are translated with t() when rendered, so a language change updates them.
 const folderOptions = [
-  { value: 'left', label: 'Vänster' },
-  { value: 'right', label: 'Höger' },
-  { value: 'hidden', label: 'Dold' },
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+  { value: 'hidden', label: 'Hidden' },
 ]
 
 const previewOptions = [
-  { value: 'bottom', label: 'Under listan' },
-  { value: 'top', label: 'Ovanför listan' },
-  { value: 'right', label: 'Till höger om listan' },
-  { value: 'left', label: 'Till vänster om listan' },
-  { value: 'hidden', label: 'Dold' },
+  { value: 'bottom', label: 'Below the list' },
+  { value: 'top', label: 'Above the list' },
+  { value: 'right', label: 'Right of the list' },
+  { value: 'left', label: 'Left of the list' },
+  { value: 'hidden', label: 'Hidden' },
 ]
 
 const presets = [
-  { name: 'Klassisk', folders: 'left', preview: 'bottom' },
-  { name: 'Bred', folders: 'left', preview: 'right' },
-  { name: 'Spegelvänd', folders: 'right', preview: 'left' },
-  { name: 'Utan läsruta', folders: 'left', preview: 'hidden' },
-  { name: 'Bara lista och läsruta', folders: 'hidden', preview: 'right' },
+  { name: 'Classic', folders: 'left', preview: 'bottom' },
+  { name: 'Wide', folders: 'left', preview: 'right' },
+  { name: 'Mirrored', folders: 'right', preview: 'left' },
+  { name: 'No reading pane', folders: 'left', preview: 'hidden' },
+  { name: 'List and reading pane only', folders: 'hidden', preview: 'right' },
 ]
+
+// The hint contains <kbd> markup, so the key names are inserted as placeholders and rendered with v-html.
+const hintHtml = computed(() =>
+  t(
+    'Drag the edges between the panes to resize them. {f8} shows or hides the reading pane and {f9} the folder pane. Without a reading pane, a message opens with a double-click or {enter}.',
+    { f8: '<kbd>F8</kbd>', f9: '<kbd>F9</kbd>', enter: '<kbd>Enter</kbd>' },
+  ),
+)
 
 function applyPreset(preset) {
   layout.folders = preset.folders
@@ -58,8 +68,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop" @click.self="close">
     <div class="modal layout-dialog">
       <div class="modal-header">
-        <h2>Layout</h2>
-        <button class="btn ghost" title="Stäng" @click="close"><Icon name="close" /></button>
+        <h2>{{ t('Layout') }}</h2>
+        <button class="btn ghost" :title="t('Close')" @click="close"><Icon name="close" /></button>
       </div>
 
       <div class="content">
@@ -78,43 +88,49 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                 <span v-if="preset.preview !== 'hidden'" class="box p" />
               </span>
             </span>
-            <span class="preset-name">{{ preset.name }}</span>
+            <span class="preset-name">{{ t(preset.name) }}</span>
           </button>
         </div>
 
         <div class="controls">
           <fieldset>
-            <legend>Mappfält</legend>
+            <legend>{{ t('Folder pane') }}</legend>
             <label v-for="o in folderOptions" :key="o.value" class="radio">
-              <input v-model="layout.folders" type="radio" :value="o.value" /> {{ o.label }}
+              <input v-model="layout.folders" type="radio" :value="o.value" /> {{ t(o.label) }}
             </label>
           </fieldset>
           <fieldset>
-            <legend>Läsruta</legend>
+            <legend>{{ t('Reading pane') }}</legend>
             <label v-for="o in previewOptions" :key="o.value" class="radio">
-              <input v-model="layout.preview" type="radio" :value="o.value" /> {{ o.label }}
+              <input v-model="layout.preview" type="radio" :value="o.value" /> {{ t(o.label) }}
             </label>
           </fieldset>
 
           <div class="big mini" :class="[`folders-${layout.folders}`, `preview-${layout.preview}`]" aria-hidden="true">
-            <span v-if="layout.folders !== 'hidden'" class="box f">Mappar</span>
+            <span v-if="layout.folders !== 'hidden'" class="box f">{{ t('Folders') }}</span>
             <span class="stack">
-              <span class="box l">Meddelanden</span>
-              <span v-if="layout.preview !== 'hidden'" class="box p">Läsruta</span>
+              <span class="box l">{{ t('Messages') }}</span>
+              <span v-if="layout.preview !== 'hidden'" class="box p">{{ t('Reading pane') }}</span>
             </span>
           </div>
         </div>
 
-        <p class="muted hint">
-          Dra i kanterna mellan panelerna för att ändra storlek. <kbd>F8</kbd> visar eller döljer läsrutan och
-          <kbd>F9</kbd> mappfältet. Utan läsruta öppnas ett meddelande med dubbelklick eller <kbd>Enter</kbd>.
-        </p>
+        <!-- v-html is safe here: the markup comes from our own translation table, never from user data. -->
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <p class="muted hint" v-html="hintHtml" />
+
+        <label class="language-row">
+          <span class="language-label">{{ t('Language') }}</span>
+          <select class="input language-select" :value="lang" @change="setLanguage($event.target.value)">
+            <option v-for="l in LANGUAGES" :key="l.code" :value="l.code">{{ l.name }}</option>
+          </select>
+        </label>
       </div>
 
       <div class="modal-footer">
-        <button class="btn" @click="resetSizes">Återställ storlekar</button>
+        <button class="btn" @click="resetSizes">{{ t('Reset sizes') }}</button>
         <div class="spacer" />
-        <button class="btn primary" @click="close">Klar</button>
+        <button class="btn primary" @click="close">{{ t('Done') }}</button>
       </div>
     </div>
   </div>
@@ -262,7 +278,8 @@ legend {
   font-size: 12px;
 }
 
-kbd {
+/* :deep because the kbd elements are inserted with v-html and lack the scoped attribute. */
+.hint :deep(kbd) {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 11px;
   border: 1px solid var(--border);
@@ -270,6 +287,23 @@ kbd {
   border-radius: 3px;
   padding: 0 4px;
   background: var(--pane-alt);
+}
+
+.language-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.language-label {
+  font-weight: 600;
+}
+
+.language-select {
+  width: auto;
 }
 
 .spacer {

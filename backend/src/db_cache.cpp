@@ -61,7 +61,7 @@ std::string deflate(const std::string& data) {
     for (int i = 0; i < 8; ++i) out[static_cast<std::size_t>(i)] = static_cast<char>((length >> (8 * i)) & 0xff);
     if (compress2(reinterpret_cast<Bytef*>(&out[8]), &size, reinterpret_cast<const Bytef*>(data.data()),
                   static_cast<uLong>(data.size()), Z_DEFAULT_COMPRESSION) != Z_OK) {
-        throw std::runtime_error("Kunde inte komprimera meddelandetexten");
+        throw std::runtime_error("Could not compress the message text");
     }
     out.resize(size + 8);
     return out;
@@ -71,12 +71,12 @@ std::string inflate(const std::string& data) {
     if (data.size() < 8) return {};
     std::uint64_t length = 0;
     for (int i = 0; i < 8; ++i) length |= static_cast<std::uint64_t>(static_cast<unsigned char>(data[static_cast<std::size_t>(i)])) << (8 * i);
-    if (length > 64ull * 1024 * 1024) throw std::runtime_error("Skadad text i mejlcachen");
+    if (length > 64ull * 1024 * 1024) throw std::runtime_error("Corrupt text in the mail cache");
     std::string out(length, '\0');
     uLongf size = static_cast<uLongf>(length);
     if (uncompress(reinterpret_cast<Bytef*>(out.data()), &size, reinterpret_cast<const Bytef*>(data.data() + 8),
                    static_cast<uLong>(data.size() - 8)) != Z_OK) {
-        throw std::runtime_error("Skadad text i mejlcachen");
+        throw std::runtime_error("Corrupt text in the mail cache");
     }
     out.resize(size);
     return out;

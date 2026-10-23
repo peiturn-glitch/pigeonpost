@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { t } from './i18n'
 
 // Hjälpfunktioner för formaterade meddelanden (HTML) i skrivfönstret.
 
@@ -73,7 +74,7 @@ export function editorToText(root) {
     if (tag === 'IMG') {
       // En logotyp i signaturen nämns inte i textversionen.
       if (node.closest(`.${SIGNATURE_CLASS}`)) return ''
-      return node.getAttribute('alt') ? `[${node.getAttribute('alt')}]` : '[bild]'
+      return node.getAttribute('alt') ? `[${node.getAttribute('alt')}]` : `[${t('image')}]`
     }
 
     let index = 0
@@ -116,13 +117,13 @@ function readAsDataUrl(blob) {
 // En bildfil som data-URI för infogning i meddelandet. Stora foton skalas ned, så att mejlet inte blir onödigt tungt.
 // Servern gör om data-URI:n till en inbäddad bild (cid) när meddelandet skickas.
 export async function imageToDataUrl(file) {
-  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) throw new Error('Bildformatet stöds inte. Använd PNG, JPEG, GIF eller WebP.')
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) throw new Error(t('Unsupported image format. Use PNG, JPEG, GIF or WebP.'))
   const original = await readAsDataUrl(file)
   if (file.type === 'image/gif') return original // En animerad GIF skulle bli en stillbild.
   const image = new Image()
   await new Promise((resolve, reject) => {
     image.onload = resolve
-    image.onerror = () => reject(new Error('Bilden kunde inte läsas'))
+    image.onerror = () => reject(new Error(t('The image could not be read')))
     image.src = original
   })
   if (image.naturalWidth <= MAX_IMAGE_WIDTH) return original

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { attachmentUrl, sourceUrl } from '../api'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
 import { formatAddress, formatFullDate, formatSize, linkify } from '../utils'
 import Icon from './Icon.vue'
@@ -11,6 +12,7 @@ const allowRemote = ref(false)
 const msg = computed(() => store.openMessage)
 const isDraft = computed(() => (msg.value && store.folderInfo(msg.value.accountId, msg.value.folder)?.specialUse === 'drafts') || msg.value?.draft)
 const visibleAttachments = computed(() => (msg.value?.attachments || []).filter((a) => !a.inline))
+const attachmentCount = computed(() => (visibleAttachments.value.length === 1 ? t('1 attachment') : t('{n} attachments', { n: visibleAttachments.value.length })))
 
 watch(
   () => msg.value?.key,
@@ -70,71 +72,71 @@ function attachmentHref(a) {
 
 <template>
   <div class="message-view">
-    <div v-if="store.loadingMessage && !msg" class="placeholder muted">Hämtar meddelande…</div>
+    <div v-if="store.loadingMessage && !msg" class="placeholder muted">{{ t('Loading message…') }}</div>
     <div v-else-if="store.messageError" class="placeholder error-text">{{ store.messageError }}</div>
     <div v-else-if="!msg" class="placeholder muted">
       <Icon name="mail" :size="48" />
-      <p v-if="store.selection.size > 1">{{ store.selection.size }} meddelanden markerade</p>
-      <p v-else>Välj ett meddelande för att läsa det.</p>
+      <p v-if="store.selection.size > 1">{{ t('{n} messages selected', { n: store.selection.size }) }}</p>
+      <p v-else>{{ t('Select a message to read it.') }}</p>
     </div>
 
     <template v-else>
       <header class="headers">
         <div class="actions">
-          <button v-if="isDraft" class="btn primary" @click="store.startCompose('editDraft')">Redigera utkast</button>
-          <button class="btn" title="Svara" @click="store.startCompose('reply')"><Icon name="reply" /> Svara</button>
-          <button class="btn" title="Svara alla" @click="store.startCompose('replyAll')"><Icon name="replyAll" /></button>
-          <button class="btn" title="Vidarebefordra" @click="store.startCompose('forward')"><Icon name="forward" /></button>
-          <button class="btn" :title="msg.flagged ? 'Ta bort stjärna' : 'Stjärnmärk'" @click="store.setFlag('flagged', !msg.flagged, [msg.key])">
+          <button v-if="isDraft" class="btn primary" @click="store.startCompose('editDraft')">{{ t('Edit draft') }}</button>
+          <button class="btn" :title="t('Reply')" @click="store.startCompose('reply')"><Icon name="reply" /> {{ t('Reply') }}</button>
+          <button class="btn" :title="t('Reply all')" @click="store.startCompose('replyAll')"><Icon name="replyAll" /></button>
+          <button class="btn" :title="t('Forward')" @click="store.startCompose('forward')"><Icon name="forward" /></button>
+          <button class="btn" :title="msg.flagged ? t('Remove star') : t('Star')" @click="store.setFlag('flagged', !msg.flagged, [msg.key])">
             <Icon name="star" class="star" :class="{ on: msg.flagged }" />
           </button>
-          <button class="btn" title="Markera som oläst" @click="store.setFlag('seen', false, [msg.key])">
+          <button class="btn" :title="t('Mark as unread')" @click="store.setFlag('seen', false, [msg.key])">
             <Icon name="unread" />
           </button>
-          <a class="btn" title="Visa källkod" :href="sourceUrl(msg.accountId, msg.folder, msg.uid)" target="_blank" rel="noopener">
+          <a class="btn" :title="t('View source')" :href="sourceUrl(msg.accountId, msg.folder, msg.uid)" target="_blank" rel="noopener">
             <Icon name="code" />
           </a>
-          <button class="btn danger" title="Ta bort" @click="store.deleteMessages([msg.key])"><Icon name="trash" /></button>
+          <button class="btn danger" :title="t('Delete')" @click="store.deleteMessages([msg.key])"><Icon name="trash" /></button>
         </div>
 
         <dl>
-          <dt>Från</dt>
+          <dt>{{ t('From') }}</dt>
           <dd>
-            <button v-for="a in msg.from" :key="a.email" class="address" :title="`Skriv till ${a.email}`" @click="store.composeTo(a)">
+            <button v-for="a in msg.from" :key="a.email" class="address" :title="t('Write to {email}', { email: a.email })" @click="store.composeTo(a)">
               <strong>{{ a.name || a.email }}</strong>
               <span v-if="a.name" class="muted"> &lt;{{ a.email }}&gt;</span>
             </button>
           </dd>
-          <dt>Ämne</dt>
-          <dd class="subject">{{ msg.subject || '(inget ämne)' }}</dd>
+          <dt>{{ t('Subject') }}</dt>
+          <dd class="subject">{{ msg.subject || t('(no subject)') }}</dd>
           <template v-if="msg.to.length">
-            <dt>Till</dt>
+            <dt>{{ t('To') }}</dt>
             <dd class="clip" :title="addressesTitle(msg.to)">{{ addressesTitle(msg.to) }}</dd>
           </template>
           <template v-if="msg.cc.length">
-            <dt>Kopia</dt>
+            <dt>{{ t('Cc') }}</dt>
             <dd class="clip" :title="addressesTitle(msg.cc)">{{ addressesTitle(msg.cc) }}</dd>
           </template>
-          <dt>Datum</dt>
+          <dt>{{ t('Date') }}</dt>
           <dd>{{ formatFullDate(msg.date) }}</dd>
         </dl>
       </header>
 
       <div v-if="hasRemoteContent && !showRemote" class="remote-banner">
-        <span>Fjärrinnehåll har blockerats för att skydda din integritet.</span>
-        <button class="btn" @click="allowRemote = true">Visa fjärrinnehåll</button>
+        <span>{{ t('Remote content has been blocked to protect your privacy.') }}</span>
+        <button class="btn" @click="allowRemote = true">{{ t('Show remote content') }}</button>
         <button
           v-if="senderEmail"
           class="btn"
-          :title="`Fjärrinnehåll visas direkt i alla mejl från ${senderEmail}, även framtida`"
+          :title="t('Remote content will be shown right away in all mail from {email}, including future messages', { email: senderEmail })"
           @click="store.setRemoteSenderTrusted(senderEmail, true)"
         >
-          Visa alltid från {{ senderEmail }}
+          {{ t('Always show from {email}', { email: senderEmail }) }}
         </button>
       </div>
       <div v-else-if="hasRemoteContent && trustedSender" class="remote-banner trusted">
-        <span>Fjärrinnehåll visas alltid från {{ senderEmail }}.</span>
-        <button class="link" @click="store.setRemoteSenderTrusted(senderEmail, false)">Sluta lita på avsändaren</button>
+        <span>{{ t('Remote content is always shown from {email}.', { email: senderEmail }) }}</span>
+        <button class="link" @click="store.setRemoteSenderTrusted(senderEmail, false)">{{ t('Stop trusting this sender') }}</button>
       </div>
 
       <div class="body">
@@ -145,16 +147,16 @@ function attachmentHref(a) {
           sandbox="allow-popups allow-popups-to-escape-sandbox"
           referrerpolicy="no-referrer"
           :srcdoc="srcdoc"
-          title="Meddelandets innehåll"
+          :title="t('Message content')"
         />
         <pre v-else class="plain"><template v-for="(seg, i) in textSegments" :key="i"><a v-if="seg.type === 'link'" :href="seg.value" target="_blank" rel="noopener noreferrer">{{ seg.value }}</a><template v-else>{{ seg.value }}</template></template></pre>
       </div>
 
       <p v-if="msg.partial" class="partial-note muted">
-        Mejlservern går inte att nå. Texten är sparad, men bilagor kan saknas i listan och går inte att öppna just nu.
+        {{ t('The mail server cannot be reached. The text is saved, but attachments may be missing from the list and cannot be opened right now.') }}
       </p>
       <footer v-if="visibleAttachments.length" class="attachments">
-        <span class="muted"><Icon name="paperclip" :size="14" /> {{ visibleAttachments.length }} bilaga(or)</span>
+        <span class="muted"><Icon name="paperclip" :size="14" /> {{ attachmentCount }}</span>
         <a
           v-for="a in visibleAttachments"
           :key="a.index"
@@ -162,7 +164,7 @@ function attachmentHref(a) {
           :href="attachmentHref(a)"
           target="_blank"
           rel="noopener"
-          :title="isViewable(a) ? `Öppna ${a.filename} i en ny flik` : `Ladda ned ${a.filename}`"
+          :title="isViewable(a) ? t('Open {name} in a new tab', { name: a.filename }) : t('Download {name}', { name: a.filename })"
         >
           <Icon :name="isViewable(a) ? 'link' : 'download'" :size="14" />
           <span class="att-name">{{ a.filename }}</span>

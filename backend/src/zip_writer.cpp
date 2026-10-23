@@ -34,7 +34,7 @@ void put64(std::string& out, std::uint64_t v) {
 std::string deflateRaw(const std::string& data) {
     z_stream zs{};
     if (deflateInit2(&zs, 6, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
-        throw std::runtime_error("Kunde inte starta komprimeringen");
+        throw std::runtime_error("Could not start compression");
     }
     std::string out(deflateBound(&zs, static_cast<uLong>(data.size())), '\0');
     zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data.data()));
@@ -44,7 +44,7 @@ std::string deflateRaw(const std::string& data) {
     int rc = deflate(&zs, Z_FINISH);
     out.resize(zs.total_out);
     deflateEnd(&zs);
-    if (rc != Z_STREAM_END) throw std::runtime_error("Komprimeringen misslyckades");
+    if (rc != Z_STREAM_END) throw std::runtime_error("Compression failed");
     return out;
 }
 
@@ -52,7 +52,7 @@ std::string deflateRaw(const std::string& data) {
 
 ZipWriter::ZipWriter(const std::string& path) : path_(path) {
     file_ = std::fopen(path.c_str(), "wb");
-    if (!file_) throw std::runtime_error("Kunde inte skapa " + path + ": " + std::strerror(errno));
+    if (!file_) throw std::runtime_error("Could not create " + path + ": " + std::strerror(errno));
 }
 
 ZipWriter::~ZipWriter() {
@@ -60,17 +60,17 @@ ZipWriter::~ZipWriter() {
 }
 
 void ZipWriter::write(const std::string& bytes) {
-    if (!file_) throw std::runtime_error("Zip-filen är redan stängd");
+    if (!file_) throw std::runtime_error("The zip file is already closed");
     if (!bytes.empty() && std::fwrite(bytes.data(), 1, bytes.size(), file_) != bytes.size()) {
-        throw std::runtime_error("Kunde inte skriva backupfilen (är disken full?)");
+        throw std::runtime_error("Could not write the backup file (is the disk full?)");
     }
     offset_ += bytes.size();
 }
 
 void ZipWriter::add(const std::string& name, const std::string& data, std::time_t modified) {
     // Ett enskilt meddelande blir aldrig så stort; då räcker 32-bitars storlekar i det lokala huvudet.
-    if (data.size() >= kMax32) throw std::runtime_error("För stor fil för zip-arkivet: " + name);
-    if (name.size() > kMax16) throw std::runtime_error("För långt filnamn i zip-arkivet");
+    if (data.size() >= kMax32) throw std::runtime_error("File too large for the zip archive: " + name);
+    if (name.size() > kMax16) throw std::runtime_error("File name too long for the zip archive");
 
     Entry e;
     e.name = name;
@@ -177,7 +177,7 @@ void ZipWriter::finish() {
 
     if (std::fflush(file_) != 0 || std::fclose(file_) != 0) {
         file_ = nullptr;
-        throw std::runtime_error("Kunde inte skriva backupfilen (är disken full?)");
+        throw std::runtime_error("Could not write the backup file (is the disk full?)");
     }
     file_ = nullptr;
 }

@@ -1,10 +1,12 @@
 <script setup>
+import { t } from '../i18n'
+
 // Resultat per adress när flera adresser läggs till på en gång.
 defineProps({
   entries: { type: Array, required: true },
   // Vad en färdig rad ska säga, t.ex. "Tillagt".
-  doneText: { type: String, default: 'Tillagt' },
-  existsText: { type: String, default: 'Finns redan' },
+  doneText: { type: String, default: '' },
+  existsText: { type: String, default: '' },
 })
 
 const marks = { ok: '✓', error: '✗', exists: '•', working: '…' }
@@ -16,10 +18,10 @@ const marks = { ok: '✓', error: '✗', exists: '•', working: '…' }
       <span class="mark">{{ marks[entry.status] || '·' }}</span>
       <span class="addr">{{ entry.email }}</span>
       <span class="msg">
-        <template v-if="entry.status === 'ok'">{{ doneText }}</template>
-        <template v-else-if="entry.status === 'exists'">{{ existsText }}</template>
-        <template v-else-if="entry.status === 'working'">Lägger till…</template>
-        <template v-else>{{ entry.message || 'Väntar' }}</template>
+        <template v-if="entry.status === 'ok'">{{ doneText || t('Added') }}</template>
+        <template v-else-if="entry.status === 'exists'">{{ existsText || t('Already exists') }}</template>
+        <template v-else-if="entry.status === 'working'">{{ t('Adding…') }}</template>
+        <template v-else>{{ entry.message || t('Waiting') }}</template>
       </span>
     </li>
   </ul>

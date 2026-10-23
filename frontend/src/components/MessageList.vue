@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
-import { SORT_KEYS, displayName, folderLabel, formatListDate, specialFolderNames } from '../utils'
+import { SORT_KEYS, displayName, formatListDate, specialFolderNames } from '../utils'
 import Icon from './Icon.vue'
 
 const store = useMailStore()
@@ -13,10 +14,13 @@ let searchTimer = null
 const showRecipient = computed(() => ['sent', 'drafts'].includes(store.currentFolderInfo?.specialUse))
 
 const title = computed(() => {
-  if (store.current.view === 'unread') return 'Olästa i alla mappar'
+  if (store.current.view === 'unread') return t('Unread in all folders')
   const f = store.currentFolderInfo
-  return f ? folderLabel(f) : store.current.folder || ''
+  if (!f) return store.current.folder || ''
+  return f.specialUse && specialFolderNames[f.specialUse] ? t(specialFolderNames[f.specialUse]) : f.name
 })
+
+const countText = computed(() => (store.total === 1 ? t('1 message') : t('{n} messages', { n: store.total })))
 
 watch(
   () => [store.current.folder, store.current.view],
@@ -72,14 +76,14 @@ function onSortSelect(event) {
 
 function correspondent(m) {
   const list = showRecipient.value ? m.to : m.from
-  return list.map(displayName).join(', ') || '(okänd)'
+  return list.map(displayName).join(', ') || t('(unknown)')
 }
 
 // I en samlad vy visas var varje mejl ligger.
 function folderTag(m) {
   const f = store.folderInfo(m.accountId, m.folder)
   // Hela sökvägen, så att undermappar med samma namn går att skilja åt.
-  const name = specialFolderNames[f?.specialUse] || m.folder
+  const name = f?.specialUse && specialFolderNames[f.specialUse] ? t(specialFolderNames[f.specialUse]) : m.folder
   const account = store.accounts.length > 1 ? store.accounts.find((a) => a.id === m.accountId) : null
   return account ? `${name} · ${account.name || account.email}` : name
 }
@@ -102,7 +106,7 @@ function onDragStart(event, m) {
   const keys = [...store.selection]
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('application/x-brevduva-messages', JSON.stringify({ keys }))
-  event.dataTransfer.setData('text/plain', `${keys.length} meddelande(n)`)
+  event.dataTransfer.setData('text/plain', keys.length === 1 ? t('1 message') : t('{n} messages', { n: keys.length }))
 }
 
 function onScroll() {
@@ -120,23 +124,23 @@ function rowMenu(event, m) {
     x: event.clientX,
     y: event.clientY,
     items: [
-      { label: 'Svara', action: () => store.startCompose('reply') },
-      { label: 'Vidarebefordra', action: () => store.startCompose('forward') },
-      { label: anyUnread ? 'Markera som läst' : 'Markera som oläst', action: () => store.setFlag('seen', anyUnread) },
-      { label: anyUnflagged ? 'Stjärnmärk' : 'Ta bort stjärna', action: () => store.setFlag('flagged', anyUnflagged) },
+      { label: t('Reply'), action: () => store.startCompose('reply') },
+      { label: t('Forward'), action: () => store.startCompose('forward') },
+      { label: anyUnread ? t('Mark as read') : t('Mark as unread'), action: () => store.setFlag('seen', anyUnread) },
+      { label: anyUnflagged ? t('Star') : t('Remove star'), action: () => store.setFlag('flagged', anyUnflagged) },
       // AI-sorteringen tar en mapp i taget, så den erbjuds inte i en samlad vy.
       ...(store.current.view
-        ? [{ label: 'Visa i sin mapp', action: () => store.openSearchResult(m) }]
+        ? [{ label: t('Show in folder'), action: () => store.openSearchResult(m) }]
         : [
             {
-              label: 'Sortera med AI…',
+              label: t('Sort with AI…'),
               action: () =>
                 (store.aiDialog = { accountId: store.current.accountId, folder: store.current.folder, uids: selected.map((x) => x.uid) }),
             },
           ]),
-      { label: 'Arkivera', action: () => store.archive() },
-      { label: 'Skräppost', action: () => store.markJunk() },
-      { label: 'Ta bort', danger: true, action: () => store.deleteMessages() },
+      { label: t('Move to archive'), action: () => store.archive() },
+      { label: t('Mark as junk'), action: () => store.markJunk() },
+      { label: t('Delete'), danger: true, action: () => store.deleteMessages() },
     ],
   }
 }
@@ -146,28 +150,28 @@ function rowMenu(event, m) {
   <div class="message-list">
     <div class="filter-bar">
       <strong class="title" :title="store.current.folder">{{ title }}</strong>
-      <span class="muted count">{{ store.total }} meddelanden</span>
+      <span class="muted count">{{ countText }}</span>
       <div class="spacer" />
-      <button v-if="!store.current.view" class="btn ghost chip" :class="{ active: store.filter.unread }" title="Visa endast olästa" @click="toggleFilter('unread')">
-        <Icon name="unread" :size="12" /> Olästa
+      <button v-if="!store.current.view" class="btn ghost chip" :class="{ active: store.filter.unread }" :title="t('Show unread only')" @click="toggleFilter('unread')">
+        <Icon name="unread" :size="12" /> {{ t('Unread') }}
       </button>
-      <button class="btn ghost chip" :class="{ active: store.filter.flagged }" title="Visa endast stjärnmärkta" @click="toggleFilter('flagged')">
-        <Icon name="star" :size="12" /> Stjärnmärkta
+      <button class="btn ghost chip" :class="{ active: store.filter.flagged }" :title="t('Show starred only')" @click="toggleFilter('flagged')">
+        <Icon name="star" :size="12" /> {{ t('Starred') }}
       </button>
       <label class="search">
         <Icon name="search" :size="14" />
-        <input v-model="searchText" type="search" :placeholder="store.current.view ? 'Sök bland olästa…' : 'Sök i den här mappen…'" @input="onSearchInput" @keydown.enter="onSearchEnter" />
+        <input v-model="searchText" type="search" :placeholder="store.current.view ? t('Search unread…') : t('Search this folder…')" @input="onSearchInput" @keydown.enter="onSearchEnter" />
       </label>
-      <button class="btn ghost chip" title="Sök i alla mappar och konton, med filter och AI-stöd (Skift+Enter i sökfältet)" @click="openSearch">
-        <Icon name="search" :size="12" /> Alla mappar
+      <button class="btn ghost chip" :title="t('Search all folders and accounts, with filters and AI support (Shift+Enter in the search box)')" @click="openSearch">
+        <Icon name="search" :size="12" /> {{ t('All folders') }}
       </button>
-      <span class="sort-control" title="Sortering">
-        <select :value="store.currentSort.key" aria-label="Sortera efter" @change="onSortSelect">
-          <option v-for="s in sortOptions" :key="s.key" :value="s.key">{{ s.label }}</option>
+      <span class="sort-control" :title="t('Sort order')">
+        <select :value="store.currentSort.key" :aria-label="t('Sort by')" @change="onSortSelect">
+          <option v-for="s in sortOptions" :key="s.key" :value="s.key">{{ t(s.label) }}</option>
         </select>
         <button
           class="btn ghost chip"
-          :title="store.currentSort.desc ? 'Fallande ordning (nyast, störst eller Ö först). Klicka för stigande.' : 'Stigande ordning (äldst, minst eller A först). Klicka för fallande.'"
+          :title="store.currentSort.desc ? t('Descending (newest, largest or Z first). Click for ascending.') : t('Ascending (oldest, smallest or A first). Click for descending.')"
           @click="store.setSort(store.currentSort.key, !store.currentSort.desc)"
         >
           <Icon :name="store.currentSort.desc ? 'arrowDown' : 'arrowUp'" :size="12" />
@@ -178,22 +182,22 @@ function rowMenu(event, m) {
     <div class="header-row">
       <span class="col-star"><Icon name="star" :size="12" /></span>
       <span class="col-attach"><Icon name="paperclip" :size="12" /></span>
-      <button class="col-subject sortable" :class="{ sorted: store.currentSort.key === 'subject' }" title="Sortera efter ämne" @click="sortBy('subject')">
-        Ämne <Icon v-if="sortIcon('subject')" :name="sortIcon('subject')" :size="11" />
+      <button class="col-subject sortable" :class="{ sorted: store.currentSort.key === 'subject' }" :title="t('Sort by subject')" @click="sortBy('subject')">
+        {{ t('Subject') }} <Icon v-if="sortIcon('subject')" :name="sortIcon('subject')" :size="11" />
       </button>
-      <button class="col-from sortable" :class="{ sorted: store.currentSort.key === correspondentKey }" :title="showRecipient ? 'Sortera efter mottagare' : 'Sortera efter avsändare'" @click="sortBy(correspondentKey)">
-        {{ showRecipient ? 'Mottagare' : 'Korrespondent' }} <Icon v-if="sortIcon(correspondentKey)" :name="sortIcon(correspondentKey)" :size="11" />
+      <button class="col-from sortable" :class="{ sorted: store.currentSort.key === correspondentKey }" :title="showRecipient ? t('Sort by recipient') : t('Sort by sender')" @click="sortBy(correspondentKey)">
+        {{ showRecipient ? t('Recipient') : t('Correspondent') }} <Icon v-if="sortIcon(correspondentKey)" :name="sortIcon(correspondentKey)" :size="11" />
       </button>
-      <button class="col-date sortable" :class="{ sorted: store.currentSort.key === 'date' }" title="Sortera efter datum" @click="sortBy('date')">
-        <Icon v-if="sortIcon('date')" :name="sortIcon('date')" :size="11" /> Datum
+      <button class="col-date sortable" :class="{ sorted: store.currentSort.key === 'date' }" :title="t('Sort by date')" @click="sortBy('date')">
+        <Icon v-if="sortIcon('date')" :name="sortIcon('date')" :size="11" /> {{ t('Date') }}
       </button>
     </div>
 
     <div ref="scroller" class="rows" tabindex="0" @scroll="onScroll">
       <p v-if="store.listError" class="notice error-text">{{ store.listError }}</p>
-      <p v-else-if="!store.current.accountId && !store.current.view" class="notice muted">Välj en mapp.</p>
+      <p v-else-if="!store.current.accountId && !store.current.view" class="notice muted">{{ t('Select a folder.') }}</p>
       <p v-else-if="!store.loadingMessages && !store.messages.length" class="notice muted">
-        {{ store.current.view ? 'Inga olästa meddelanden.' : 'Inga meddelanden.' }}
+        {{ store.current.view ? t('No unread messages.') : t('No messages.') }}
       </p>
 
       <div
@@ -213,7 +217,7 @@ function rowMenu(event, m) {
         <span class="col-attach"><Icon v-if="m.hasAttachments" name="paperclip" :size="13" /></span>
         <span class="col-subject">
           <Icon v-if="m.answered" name="reply" :size="12" class="answered" />
-          {{ m.subject || '(inget ämne)' }}
+          {{ m.subject || t('(no subject)') }}
         </span>
         <span class="col-from">
           {{ correspondent(m) }}
@@ -222,7 +226,7 @@ function rowMenu(event, m) {
         <span class="col-date">{{ formatListDate(m.date) }}</span>
       </div>
 
-      <p v-if="store.loadingMessages" class="notice muted">Hämtar meddelanden…</p>
+      <p v-if="store.loadingMessages" class="notice muted">{{ t('Loading messages…') }}</p>
     </div>
   </div>
 </template>

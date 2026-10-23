@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
 import AccountDialog from './AccountDialog.vue'
 import AiSortDialog from './AiSortDialog.vue'
@@ -210,77 +211,77 @@ onBeforeUnmount(() => {
 <template>
   <div class="layout" @click="menuOpen = false">
     <header class="toolbar">
-      <button class="btn ghost" title="Hämta meddelanden (F5)" :disabled="refreshing" @click="refresh">
-        <Icon name="refresh" :class="{ spin: refreshing }" /> Hämta
+      <button class="btn ghost" :title="t('Get messages (F5)')" :disabled="refreshing" @click="refresh">
+        <Icon name="refresh" :class="{ spin: refreshing }" /> {{ t('Get Mail') }}
       </button>
-      <button class="btn ghost" title="Skriv nytt meddelande (Ctrl+N)" @click="store.startCompose('new', null)">
-        <Icon name="drafts" /> Skriv
-      </button>
-      <span class="sep" />
-      <button class="btn ghost" :disabled="!canReply" title="Svara (Ctrl+R)" @click="store.startCompose('reply')">
-        <Icon name="reply" /> Svara
-      </button>
-      <button class="btn ghost" :disabled="!canReply" title="Svara alla (Ctrl+Shift+R)" @click="store.startCompose('replyAll')">
-        <Icon name="replyAll" /> Svara alla
-      </button>
-      <button class="btn ghost" :disabled="!canReply" title="Vidarebefordra (Ctrl+L)" @click="store.startCompose('forward')">
-        <Icon name="forward" /> Vidarebefordra
+      <button class="btn ghost" :title="t('Write a new message (Ctrl+N)')" @click="store.startCompose('new', null)">
+        <Icon name="drafts" /> {{ t('Write') }}
       </button>
       <span class="sep" />
-      <button class="btn ghost" :disabled="!hasSelection" title="Arkivera (A)" @click="store.archive()">
-        <Icon name="archive" /> Arkivera
+      <button class="btn ghost" :disabled="!canReply" :title="t('Reply (Ctrl+R)')" @click="store.startCompose('reply')">
+        <Icon name="reply" /> {{ t('Reply') }}
       </button>
-      <button class="btn ghost" :disabled="!hasSelection" title="Skräppost (J)" @click="store.markJunk()">
-        <Icon name="junk" /> Skräp
+      <button class="btn ghost" :disabled="!canReply" :title="t('Reply all (Ctrl+Shift+R)')" @click="store.startCompose('replyAll')">
+        <Icon name="replyAll" /> {{ t('Reply all') }}
       </button>
-      <button class="btn ghost" :disabled="!hasSelection" title="Ta bort (Delete)" @click="store.deleteMessages()">
-        <Icon name="trash" /> Ta bort
+      <button class="btn ghost" :disabled="!canReply" :title="t('Forward (Ctrl+L)')" @click="store.startCompose('forward')">
+        <Icon name="forward" /> {{ t('Forward') }}
+      </button>
+      <span class="sep" />
+      <button class="btn ghost" :disabled="!hasSelection" :title="t('Archive (A)')" @click="store.archive()">
+        <Icon name="archive" /> {{ t('Archive|action') }}
+      </button>
+      <button class="btn ghost" :disabled="!hasSelection" :title="t('Mark as junk (J)')" @click="store.markJunk()">
+        <Icon name="junk" /> {{ t('Junk|action') }}
+      </button>
+      <button class="btn ghost" :disabled="!hasSelection" :title="t('Delete (Delete)')" @click="store.deleteMessages()">
+        <Icon name="trash" /> {{ t('Delete') }}
       </button>
 
       <div class="spacer" />
 
-      <button class="btn ghost" title="Layout: placera paneler (F8 läsruta, F9 mappar)" @click="store.layoutDialog = true">
+      <button class="btn ghost" :title="t('Layout: arrange panes (F8 reading pane, F9 folders)')" @click="store.layoutDialog = true">
         <Icon name="layout" />
       </button>
       <div class="menu-wrap" @click.stop>
-        <button class="btn ghost" title="Meny" @click="menuOpen = !menuOpen"><Icon name="settings" /></button>
+        <button class="btn ghost" :title="t('Menu')" @click="menuOpen = !menuOpen"><Icon name="settings" /></button>
         <div v-if="menuOpen" class="menu">
           <div class="menu-user">
             <Icon name="account" />
             <div>
               <strong>{{ store.user?.username }}</strong>
-              <span v-if="store.user?.isAdmin" class="muted"> · administratör</span>
+              <span v-if="store.user?.isAdmin" class="muted"> · {{ t('administrator') }}</span>
             </div>
           </div>
-          <button @click="store.accountDialog = {}; menuOpen = false"><Icon name="mail" /> Lägg till e-postkonto</button>
+          <button @click="store.accountDialog = {}; menuOpen = false"><Icon name="mail" /> {{ t('Add email account') }}</button>
           <button
             v-for="a in store.accounts"
             :key="a.id"
             @click="store.accountDialog = { ...a }; menuOpen = false"
           >
-            <Icon name="settings" /> Inställningar för {{ a.email }}
+            <Icon name="settings" /> {{ t('Settings for {email}', { email: a.email }) }}
           </button>
           <button @click="store.thunderbirdDialog = true; menuOpen = false">
-            <Icon name="download" /> Importera/exportera (Thunderbird)
+            <Icon name="download" /> {{ t('Import/export (Thunderbird)') }}
           </button>
           <button @click="store.backupDialog = true; menuOpen = false">
-            <Icon name="backup" /> Backup av e-postkonton
+            <Icon name="backup" /> {{ t('Back up email accounts') }}
           </button>
           <button @click="store.searchDialog = true; menuOpen = false">
-            <Icon name="search" /> Sök i alla mappar
+            <Icon name="search" /> {{ t('Search all folders') }}
           </button>
           <button @click="store.aiDialog = true; menuOpen = false">
-            <Icon name="sparkles" /> Sortera med AI
+            <Icon name="sparkles" /> {{ t('Sort with AI') }}
           </button>
           <button @click="store.layoutDialog = true; menuOpen = false">
-            <Icon name="layout" /> Layout
+            <Icon name="layout" /> {{ t('Layout') }}
           </button>
           <hr />
           <button v-if="store.user?.isAdmin" @click="store.usersDialog = true; menuOpen = false">
-            <Icon name="users" /> Hantera användare
+            <Icon name="users" /> {{ t('Manage users') }}
           </button>
-          <button @click="store.passwordDialog = true; menuOpen = false"><Icon name="key" /> Byt lösenord</button>
-          <button @click="logout"><Icon name="logout" /> Logga ut</button>
+          <button @click="store.passwordDialog = true; menuOpen = false"><Icon name="key" /> {{ t('Change password') }}</button>
+          <button @click="logout"><Icon name="logout" /> {{ t('Sign out') }}</button>
         </div>
       </div>
     </header>
@@ -312,8 +313,8 @@ onBeforeUnmount(() => {
     <div v-if="store.readerOpen && layout.preview === 'hidden'" class="modal-backdrop" @click.self="store.readerOpen = false">
       <div class="modal reader">
         <div class="modal-header">
-          <h2>{{ store.openMessage?.subject || 'Meddelande' }}</h2>
-          <button class="btn ghost" title="Stäng (Esc)" @click="store.readerOpen = false"><Icon name="close" /></button>
+          <h2>{{ store.openMessage?.subject || t('Message') }}</h2>
+          <button class="btn ghost" :title="t('Close (Esc)')" @click="store.readerOpen = false"><Icon name="close" /></button>
         </div>
         <div class="reader-body">
           <MessageView />
@@ -335,7 +336,7 @@ onBeforeUnmount(() => {
     <ContextMenu v-if="store.contextMenu" />
 
     <div class="toasts">
-      <div v-for="t in store.toasts" :key="t.id" class="toast" :class="t.type">{{ t.text }}</div>
+      <div v-for="toast in store.toasts" :key="toast.id" class="toast" :class="toast.type">{{ toast.text }}</div>
     </div>
   </div>
 </template>

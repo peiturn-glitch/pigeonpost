@@ -31,6 +31,7 @@ docker run -d --name brevduva-idtest --network brevduva_default -p 8081:80 \
   -e GOOGLE_AUTH_URL=http://localhost:9999/auth \
   -e GOOGLE_TOKEN_URL=http://brevduva-oauthmock:9999/token \
   -e GOOGLE_REVOKE_URL=http://brevduva-oauthmock:9999/revoke \
+  -e MAIL_CACHE=0 \
   brevduva:latest
 
 node tests/oauth-mock/apitest.mjs
@@ -40,5 +41,7 @@ docker rm -f brevduva-idtest brevduva-idtest-db brevduva-oauthmock
 ```
 
 `GOOGLE_AUTH_URL` pekar på `localhost`, eftersom den adressen öppnas av webbläsaren (här av testskriptet). Token- och revoke-adresserna anropas av backenden inifrån Docker-nätverket.
+
+`MAIL_CACHE=0` behövs eftersom testet förutsätter att mapplistningen går mot IMAP varje gång (med cachen på svarar servern ur cachen även när token avvisats). GreenMail måste köra med `-Dgreenmail.verbose` (som i dev-profilen) för att SMTP-kontrollen av XOAUTH2 ska hitta `AUTH`-raden i loggen.
 
 Testinstansen och dess databas har ingen volym. Starta nya containrar för varje körning, eftersom testet förutsätter att kontona får id 1 och uppåt.

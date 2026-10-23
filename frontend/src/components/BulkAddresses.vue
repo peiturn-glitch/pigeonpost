@@ -1,4 +1,6 @@
 <script setup>
+import { t } from '../i18n'
+
 // Textruta för flera adresser, delad av kontodialogen och avsändardialogen.
 defineProps({
   state: { type: Object, required: true },
@@ -16,13 +18,13 @@ defineEmits(['blur'])
       v-model="state.text"
       class="input addresses"
       rows="4"
-      placeholder="info@exempel.se&#10;kontakt@exempel.se&#10;Namn Namnsson &lt;namn@exempel.se&gt;"
+      :placeholder="t('info@example.com\ncontact@example.com\nJane Doe <jane@example.com>')"
       @blur="$emit('blur')"
     />
     <p class="muted small">
-      En adress per rad, eller åtskilda med komma. <slot name="hint" />
+      {{ t('One address per line, or separated by commas.') }} <slot name="hint" />
     </p>
-    <p v-if="parsed.invalid.length" class="error-text small">Kunde inte tolka: {{ parsed.invalid.join(', ') }}</p>
+    <p v-if="parsed.invalid.length" class="error-text small">{{ t('Could not parse: {list}', { list: parsed.invalid.join(', ') }) }}</p>
   </div>
 </template>
 

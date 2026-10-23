@@ -51,7 +51,7 @@ Handler guarded(Handler handler) {
             ~SlowLog() {
                 double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
                 if (seconds > kSlowRequestSeconds) {
-                    std::cerr << "[api] långsamt anrop: " << req.method << " " << req.path << " tog "
+                    std::cerr << "[api] slow request: " << req.method << " " << req.path << " took "
                               << std::round(seconds * 10) / 10 << " s (status " << res.status << ")\n";
                 }
             }
@@ -80,7 +80,7 @@ Handler guarded(Handler handler) {
             std::cerr << "[api] " << req.method << " " << req.path << ": " << e.what() << "\n";
             sendError(res, 502, e.what());
         } catch (const json::exception& e) {
-            sendError(res, 400, std::string("Ogiltig förfrågan: ") + e.what());
+            sendError(res, 400, std::string("Invalid request: ") + e.what());
         } catch (const std::exception& e) {
             std::cerr << "[api] " << req.method << " " << req.path << ": " << e.what() << "\n";
             sendError(res, 500, e.what());
@@ -91,7 +91,7 @@ Handler guarded(Handler handler) {
 json parseBody(const Request& req) {
     if (req.body.empty()) return json::object();
     json body = json::parse(req.body);
-    if (!body.is_object()) throw BadRequest("Förväntade ett JSON-objekt");
+    if (!body.is_object()) throw BadRequest("Expected a JSON object");
     return body;
 }
 
@@ -99,12 +99,12 @@ long long pathId(const Request& req) {
     try {
         return std::stoll(req.path_params.at("id"));
     } catch (...) {
-        throw BadRequest("Ogiltigt id");
+        throw BadRequest("Invalid id");
     }
 }
 
 std::string requiredParam(const Request& req, const std::string& name) {
-    if (!req.has_param(name)) throw BadRequest("Parameter saknas: " + name);
+    if (!req.has_param(name)) throw BadRequest("Missing parameter: " + name);
     return req.get_param_value(name);
 }
 
@@ -113,7 +113,7 @@ int intParam(const Request& req, const std::string& name, int fallback) {
     try {
         return std::stoi(req.get_param_value(name));
     } catch (...) {
-        throw BadRequest("Ogiltigt värde för " + name);
+        throw BadRequest("Invalid value for " + name);
     }
 }
 
@@ -123,7 +123,7 @@ std::uint32_t parseUid(const std::string& s) {
         if (v <= 0 || v > 0xffffffffLL) throw std::out_of_range("uid");
         return static_cast<std::uint32_t>(v);
     } catch (...) {
-        throw BadRequest("Ogiltigt meddelande-id");
+        throw BadRequest("Invalid message id");
     }
 }
 
@@ -209,14 +209,14 @@ json identityJson(const Identity& i) {
 }
 
 void validateSecurity(const std::string& value) {
-    if (value != "none" && value != "starttls" && value != "tls") throw BadRequest("Ogiltig säkerhet: " + value);
+    if (value != "none" && value != "starttls" && value != "tls") throw BadRequest("Invalid security: " + value);
 }
 
 // En formaterad signatur kan innehålla en logotyp som data-URI, men ska inte kunna fylla databasen.
 void validateSignature(const std::string& text, const std::string& html) {
     constexpr std::size_t kMaxSignature = 2 * 1024 * 1024;
     if (text.size() > kMaxSignature || html.size() > kMaxSignature) {
-        throw BadRequest("Signaturen är för stor (högst 2 MB). Använd en mindre bild.");
+        throw BadRequest("The signature is too large (max 2 MB). Use a smaller image.");
     }
 }
 
@@ -240,7 +240,7 @@ Identity identityFromJson(const json& j, const std::optional<Identity>& existing
     }
     if (j.contains("smtpPort")) {
         i.smtpPort = j.at("smtpPort").get<int>();
-        if (i.smtpPort < 1 || i.smtpPort > 65535) throw BadRequest("Ogiltig port");
+        if (i.smtpPort < 1 || i.smtpPort > 65535) throw BadRequest("Invalid port");
     }
     if (j.contains("useAccountSmtp")) i.useAccountSmtp = j.at("useAccountSmtp").get<bool>();
     if (j.contains("tlsVerify")) i.tlsVerify = j.at("tlsVerify").get<bool>();
@@ -250,11 +250,11 @@ Identity identityFromJson(const json& j, const std::optional<Identity>& existing
     // Utan inloggning behövs inget lösenord; rensa så att ett gammalt inte ligger kvar.
     if (i.smtpUsername.empty()) i.smtpPassword.clear();
 
-    if (i.email.find('@') == std::string::npos) throw BadRequest("Ange en giltig e-postadress för avsändaren");
-    if (!i.replyTo.empty() && i.replyTo.find('@') == std::string::npos) throw BadRequest("Ogiltig svarsadress");
+    if (i.email.find('@') == std::string::npos) throw BadRequest("Enter a valid email address for the sender");
+    if (!i.replyTo.empty() && i.replyTo.find('@') == std::string::npos) throw BadRequest("Invalid reply-to address");
     if (!i.useAccountSmtp) {
-        if (i.smtpHost.empty()) throw BadRequest("SMTP-server krävs för en avsändare med egen server");
-        if (!i.smtpUsername.empty() && i.smtpPassword.empty()) throw BadRequest("SMTP-lösenord krävs");
+        if (i.smtpHost.empty()) throw BadRequest("An SMTP server is required for a sender with its own server");
+        if (!i.smtpUsername.empty() && i.smtpPassword.empty()) throw BadRequest("SMTP password is required");
     }
     if (i.name.empty()) i.name = i.email;
     return i;
@@ -290,13 +290,13 @@ Account accountFromJson(const json& j, const std::optional<Account>& existing, G
     auto port = [&](const char* key, int& target) {
         if (!j.contains(key)) return;
         int v = j.at(key).get<int>();
-        if (v < 1 || v > 65535) throw BadRequest(std::string("Ogiltig port: ") + key);
+        if (v < 1 || v > 65535) throw BadRequest(std::string("Invalid port: ") + key);
         target = v;
     };
     auto security = [&](const char* key, std::string& target) {
         if (!j.contains(key)) return;
         std::string v = j.at(key).get<std::string>();
-        if (v != "none" && v != "starttls" && v != "tls") throw BadRequest(std::string("Ogiltig säkerhet: ") + key);
+        if (v != "none" && v != "starttls" && v != "tls") throw BadRequest(std::string("Invalid security: ") + key);
         target = v;
     };
 
@@ -320,7 +320,7 @@ Account accountFromJson(const json& j, const std::optional<Account>& existing, G
 
     if (j.contains("authType")) {
         std::string type = j.at("authType").get<std::string>();
-        if (type != "password" && type != "oauth-google") throw BadRequest("Ogiltig inloggningstyp");
+        if (type != "password" && type != "oauth-google") throw BadRequest("Invalid login type");
         a.authType = type;
     }
     if (a.usesGoogleOAuth()) {
@@ -328,7 +328,7 @@ Account accountFromJson(const json& j, const std::optional<Account>& existing, G
         if (!state.empty()) {
             auto result = oauth.status(state, userId);
             if (!result || !result->done || !result->error.empty() || result->purpose != GoogleOAuth::Purpose::Mail) {
-                throw BadRequest("Google-inloggningen är inte klar eller har gått ut. Logga in med Google igen.");
+                throw BadRequest("The Google sign-in is not complete or has expired. Sign in with Google again.");
             }
             a.oauthRefreshToken = result->refreshToken;
             a.oauthAccessToken = result->accessToken;
@@ -336,17 +336,17 @@ Account accountFromJson(const json& j, const std::optional<Account>& existing, G
             if (a.email.empty()) a.email = result->email;
             if (a.name.empty()) a.name = result->name;
         }
-        if (a.oauthRefreshToken.empty()) throw BadRequest("Logga in med Google för att använda Google-inloggning");
+        if (a.oauthRefreshToken.empty()) throw BadRequest("Sign in with Google to use Google sign-in");
         a.password.clear();
     } else {
         a.oauthRefreshToken.clear();
         a.oauthAccessToken.clear();
     }
 
-    if (a.email.find('@') == std::string::npos) throw BadRequest("Ange en giltig e-postadress");
-    if (a.imapHost.empty() || a.smtpHost.empty()) throw BadRequest("Server för IMAP och SMTP krävs");
-    if (a.username.empty()) throw BadRequest("Användarnamn krävs");
-    if (!a.usesGoogleOAuth() && a.password.empty()) throw BadRequest("Lösenord krävs");
+    if (a.email.find('@') == std::string::npos) throw BadRequest("Enter a valid email address");
+    if (a.imapHost.empty() || a.smtpHost.empty()) throw BadRequest("IMAP and SMTP servers are required");
+    if (a.username.empty()) throw BadRequest("Username is required");
+    if (!a.usesGoogleOAuth() && a.password.empty()) throw BadRequest("Password is required");
     if (a.name.empty()) a.name = a.email;
     return a;
 }
@@ -355,7 +355,7 @@ Account accountFromJson(const json& j, const std::optional<Account>& existing, G
 std::pair<mime::OutgoingMessage, SendOptions> composeFromRequest(const Request& req) {
     json j;
     if (req.is_multipart_form_data()) {
-        if (!req.has_file("message")) throw BadRequest("Fältet message saknas");
+        if (!req.has_file("message")) throw BadRequest("The message field is missing");
         j = json::parse(req.get_file_value("message").content);
     } else {
         j = parseBody(req);
@@ -388,7 +388,7 @@ std::pair<mime::OutgoingMessage, SendOptions> composeFromRequest(const Request& 
 // Ett e-postkonto som tillhör den inloggade användaren. Andras konton ger 404, så att id:n inte avslöjas.
 Account ownedAccount(Database& db, long long accountId, const User& user) {
     auto account = db.getAccount(accountId);
-    if (!account || account->userId != user.id) throw NotFound("Kontot finns inte");
+    if (!account || account->userId != user.id) throw NotFound("The account does not exist");
     return *account;
 }
 
@@ -401,10 +401,10 @@ Identity ownedIdentity(Database& db, const Request& req, const Account& account)
     try {
         id = std::stoll(req.path_params.at("identityId"));
     } catch (...) {
-        throw BadRequest("Ogiltigt avsändar-id");
+        throw BadRequest("Invalid sender id");
     }
     auto identity = db.getIdentity(id);
-    if (!identity || identity->accountId != account.id) throw NotFound("Avsändaren finns inte");
+    if (!identity || identity->accountId != account.id) throw NotFound("The sender does not exist");
     return *identity;
 }
 
@@ -413,7 +413,7 @@ void requireConnectionTest(MailService& mail, Response& res, const json& body, c
     if (body.value("skipTest", false)) return;
     json test = mail.testAccount(a);
     if (!test["imap"]["ok"].get<bool>() || !test["smtp"]["ok"].get<bool>()) {
-        sendJson(res, {{"error", "Anslutningstestet misslyckades"}, {"test", test}}, 400);
+        sendJson(res, {{"error", "The connection test failed"}, {"test", test}}, 400);
         aborted = true;
     }
 }
@@ -421,9 +421,9 @@ void requireConnectionTest(MailService& mail, Response& res, const json& body, c
 // Sidan som Google omdirigerar till. Den meddelar appens flik via BroadcastChannel och stänger sig;
 // appen hämtar sedan resultatet via /api/oauth/google/status med sin session.
 std::string oauthCallbackPage(const std::string& state, bool ok) {
-    std::string message = ok ? "Inloggningen är klar. Du kan stänga det här fönstret."
-                             : "Inloggningen misslyckades. Stäng fönstret och försök igen.";
-    return "<!doctype html><html lang=\"sv\"><head><meta charset=\"utf-8\"><title>Google-inloggning</title>"
+    std::string message = ok ? "Sign-in complete. You can close this window."
+                             : "Sign-in failed. Close this window and try again.";
+    return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Google sign-in</title>"
            "<style>body{font:15px system-ui,sans-serif;margin:48px;text-align:center;color:#15141a}</style></head>"
            "<body><p>" + message + "</p><script>"
            "try{new BroadcastChannel('brevduva-oauth').postMessage({state:'" + state + "'})}catch(e){}"
@@ -495,13 +495,13 @@ json backupJobJson(Database& db, const BackupJob& j) {
 
 BackupJob ownedBackupJob(Database& db, const Request& req, const User& user) {
     auto job = db.getBackupJob(pathId(req));
-    if (!job || job->userId != user.id) throw NotFound("Backupen finns inte");
+    if (!job || job->userId != user.id) throw NotFound("The backup does not exist");
     return *job;
 }
 
 BackupRun ownedBackupRun(Database& db, const Request& req, const User& user) {
     auto run = db.getBackupRun(pathId(req));
-    if (!run || run->userId != user.id) throw NotFound("Körningen finns inte");
+    if (!run || run->userId != user.id) throw NotFound("The run does not exist");
     return *run;
 }
 
@@ -510,8 +510,8 @@ void backupJobFromJson(BackupService& backup, const json& body, const User& user
     std::string name = body.value("name", "");
     name.erase(0, name.find_first_not_of(" \t"));
     while (!name.empty() && (name.back() == ' ' || name.back() == '\t')) name.pop_back();
-    if (name.empty()) throw BadRequest("Ge backupen ett namn");
-    if (name.size() > 200) throw BadRequest("Namnet är för långt");
+    if (name.empty()) throw BadRequest("Give the backup a name");
+    if (name.size() > 200) throw BadRequest("The name is too long");
     json config = backup.validateConfig(body.value("config", json::object()), user.id);
     json schedule = backup.validateSchedule(body.value("schedule", json::object()), config);
     job.userId = user.id;
@@ -536,7 +536,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     server.set_pre_routing_handler([](const Request& req, Response& res) {
         if (req.path.rfind("/api/", 0) != 0) return httplib::Server::HandlerResponse::Unhandled;
         if (req.method != "GET" && req.method != "HEAD" && req.get_header_value("X-Brevduva") != "1") {
-            sendError(res, 403, "Förfrågan saknar X-Brevduva-header");
+            sendError(res, 403, "The request is missing the X-Brevduva header");
             return httplib::Server::HandlerResponse::Handled;
         }
         return httplib::Server::HandlerResponse::Unhandled;
@@ -546,8 +546,8 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     auto authed = [&auth](UserHandler handler, bool adminOnly = false) {
         return guarded([&auth, handler = std::move(handler), adminOnly](const Request& req, Response& res) {
             auto user = auth.userForToken(sessionToken(req));
-            if (!user) throw Unauthorized("Inte inloggad");
-            if (adminOnly && !user->isAdmin) throw Forbidden("Kräver administratörsbehörighet");
+            if (!user) throw Unauthorized("Not logged in");
+            if (adminOnly && !user->isAdmin) throw Forbidden("Requires administrator privileges");
             handler(req, res, *user);
         });
     };
@@ -579,8 +579,8 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         Auth::validateUsername(username);
         Auth::validatePassword(password);
         auto id = db.createFirstAdmin(username, crypto::hashPassword(password));
-        if (!id) throw Forbidden("Installationen är redan gjord");
-        std::cout << "[auth] administratören " << username << " skapades via installationssidan" << std::endl;
+        if (!id) throw Forbidden("Setup has already been completed");
+        std::cout << "[auth] administrator " << username << " was created via the setup page" << std::endl;
         setSessionCookie(res, auth.createSession(*id));
         sendJson(res, {{"authenticated", true}, {"user", userJson(*db.getUser(*id))}}, 201);
     }));
@@ -588,7 +588,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     server.Post("/api/login", guarded([&auth](const Request& req, Response& res) {
         json body = parseBody(req);
         auto user = auth.login(body.value("username", ""), body.value("password", ""), req.remote_addr);
-        if (!user) throw Unauthorized("Fel användarnamn eller lösenord");
+        if (!user) throw Unauthorized("Wrong username or password");
         setSessionCookie(res, auth.createSession(user->id));
         sendJson(res, {{"authenticated", true}, {"user", userJson(*user)}});
     }));
@@ -602,7 +602,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     server.Post("/api/me/password", authed([&db, &auth](const Request& req, Response& res, const User& user) {
         json body = parseBody(req);
         if (!auth.checkPassword(user.id, body.value("currentPassword", ""))) {
-            throw BadRequest("Nuvarande lösenord stämmer inte");
+            throw BadRequest("The current password is incorrect");
         }
         std::string next = body.value("newPassword", "");
         Auth::validatePassword(next);
@@ -625,21 +625,21 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         Auth::validateUsername(username);
         Auth::validatePassword(password);
         long long id = db.createUser(username, crypto::hashPassword(password), body.value("isAdmin", false));
-        std::cout << "[auth] " << admin.username << " skapade användaren " << username << std::endl;
+        std::cout << "[auth] " << admin.username << " created user " << username << std::endl;
         sendJson(res, userJson(*db.getUser(id)), 201);
     }, true));
 
     server.Put("/api/users/:id", authed([&db, &auth](const Request& req, Response& res, const User& admin) {
         long long id = pathId(req);
         auto target = db.getUser(id);
-        if (!target) throw NotFound("Användaren finns inte");
+        if (!target) throw NotFound("The user does not exist");
         json body = parseBody(req);
 
         if (body.contains("isAdmin")) {
             bool makeAdmin = body.at("isAdmin").get<bool>();
             if (!makeAdmin && target->isAdmin) {
-                if (id == admin.id) throw BadRequest("Du kan inte ta bort din egen administratörsbehörighet");
-                if (db.countAdmins() <= 1) throw BadRequest("Det måste finnas minst en administratör");
+                if (id == admin.id) throw BadRequest("You cannot remove your own administrator privileges");
+                if (db.countAdmins() <= 1) throw BadRequest("There must be at least one administrator");
             }
             db.setUserAdmin(id, makeAdmin);
         }
@@ -655,8 +655,8 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
 
     server.Delete("/api/users/:id", authed([&db, &mail](const Request& req, Response& res, const User& admin) {
         long long id = pathId(req);
-        if (id == admin.id) throw BadRequest("Du kan inte ta bort dig själv");
-        if (!db.getUser(id)) throw NotFound("Användaren finns inte");
+        if (id == admin.id) throw BadRequest("You cannot delete yourself");
+        if (!db.getUser(id)) throw NotFound("The user does not exist");
         for (const auto& account : db.listAccounts(id)) mail.dropSession(account.id);
         db.deleteUser(id);
         sendJson(res, {{"ok", true}});
@@ -719,7 +719,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         Account account = ownedAccount(db, pathId(req), user);
         auto jobs = backup.jobsUsingAccount(user.id, account.id);
         if (!jobs.empty()) {
-            throw BadRequest("Kontot används av backupen " + joinNames(jobs) + ". Ta bort eller ändra backupen först.");
+            throw BadRequest("The account is used by the backup " + joinNames(jobs) + ". Delete or change the backup first.");
         }
         mail.dropSession(account.id);
         revokeIfUnused(db, oauth, account);
@@ -754,7 +754,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
 
     server.Get("/api/oauth/google/status", authed([&oauth](const Request& req, Response& res, const User& user) {
         auto result = oauth.status(req.get_param_value("state"), user.id);
-        if (!result) throw NotFound("Inloggningen finns inte eller har gått ut");
+        if (!result) throw NotFound("The sign-in does not exist or has expired");
         sendJson(res, {{"done", result->done},
                        {"ok", result->done && result->error.empty()},
                        {"error", result->error},
@@ -768,7 +768,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
                     json body = parseBody(req);
                     std::string prefs = body.value("prefs", "");
                     if (prefs.find("user_pref") == std::string::npos) {
-                        throw BadRequest("Filen innehåller inga Thunderbird-inställningar (prefs.js)");
+                        throw BadRequest("The file contains no Thunderbird settings (prefs.js)");
                     }
                     auto preview = thunderbird::importPreview(thunderbird::parsePrefs(prefs), db.listAccounts(user.id));
                     sendJson(res, preview);
@@ -786,7 +786,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         std::time_t now = std::time(nullptr);
         std::strftime(date, sizeof(date), "%Y-%m-%d", std::localtime(&now));
         res.set_header("Content-Disposition",
-                       std::string("attachment; filename=\"brevduva-installningar-") + date + ".zip\"");
+                       std::string("attachment; filename=\"pigeonpost-settings-") + date + ".zip\"");
         res.set_header("Cache-Control", "no-store");
         res.set_content(zip, "application/zip");
     }));
@@ -820,7 +820,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
 
     server.Delete("/api/backup/runs/:id", authed([&db, &backup](const Request& req, Response& res, const User& user) {
         BackupRun run = ownedBackupRun(db, req, user);
-        if (run.status == "queued" || run.status == "running") throw BadRequest("Avbryt körningen innan den tas bort");
+        if (run.status == "queued" || run.status == "running") throw BadRequest("Cancel the run before deleting it");
         backup.removeFile(run);
         db.deleteBackupRun(run.id);
         sendJson(res, {{"ok", true}});
@@ -828,16 +828,16 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
 
     server.Get("/api/backup/runs/:id/download", authed([&db](const Request& req, Response& res, const User& user) {
         BackupRun run = ownedBackupRun(db, req, user);
-        if (run.filePath.empty() || run.status != "done") throw NotFound("Backupfilen finns inte längre");
+        if (run.filePath.empty() || run.status != "done") throw NotFound("The backup file no longer exists");
         auto file = std::shared_ptr<std::FILE>(std::fopen(run.filePath.c_str(), "rb"), [](std::FILE* f) {
             if (f) std::fclose(f);
         });
-        if (!file) throw NotFound("Backupfilen finns inte längre");
+        if (!file) throw NotFound("The backup file no longer exists");
         json config = parseStored(run.config);
         char date[16];
         std::time_t created = static_cast<std::time_t>(run.createdAt);
         std::strftime(date, sizeof(date), "%Y-%m-%d", std::localtime(&created));
-        std::string filename = "brevduva-backup-" + config.value("sourceEmail", std::string("konto")) + "-" + date + ".zip";
+        std::string filename = "pigeonpost-backup-" + config.value("sourceEmail", std::string("account")) + "-" + date + ".zip";
         res.set_header("Content-Disposition", "attachment; filename*=UTF-8''" + encodeFilename(filename));
         res.set_header("Cache-Control", "no-store");
         // Filen kan vara flera gigabyte, så den skickas i bitar i stället för att läsas in i minnet.
@@ -867,7 +867,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
 
     server.Delete("/api/backup/jobs/:id", authed([&db](const Request& req, Response& res, const User& user) {
         BackupJob job = ownedBackupJob(db, req, user);
-        if (db.hasActiveBackupRun(job.id)) throw BadRequest("Backupen körs just nu. Avbryt den först.");
+        if (db.hasActiveBackupRun(job.id)) throw BadRequest("The backup is running right now. Cancel it first.");
         db.deleteBackupJob(job.id);
         sendJson(res, {{"ok", true}});
     }));
@@ -890,10 +890,10 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         std::string state = body.value("oauthState", "");
         auto status = oauth.status(state, user.id);
         if (!status || !status->done || !status->error.empty() || status->purpose != GoogleOAuth::Purpose::Drive) {
-            throw BadRequest("Google-inloggningen är inte klar eller har gått ut. Försök igen.");
+            throw BadRequest("The Google sign-in is not complete or has expired. Try again.");
         }
         auto result = oauth.take(state, user.id);
-        if (!result) throw BadRequest("Google-inloggningen har redan använts. Försök igen.");
+        if (!result) throw BadRequest("The Google sign-in has already been used. Try again.");
         // En ny inloggning för samma Google-konto förnyar den befintliga kopplingen, så att scheman fortsätter fungera.
         for (const auto& existing : db.listDriveConnections(user.id)) {
             if (existing.email == result->email) {
@@ -913,11 +913,11 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
 
     server.Delete("/api/backup/drive/:id", authed([&db, &oauth, &backup](const Request& req, Response& res, const User& user) {
         auto connection = db.getDriveConnection(pathId(req));
-        if (!connection || connection->userId != user.id) throw NotFound("Kopplingen finns inte");
+        if (!connection || connection->userId != user.id) throw NotFound("The connection does not exist");
         auto jobs = backup.jobsUsingDrive(user.id, connection->id);
         if (!jobs.empty()) {
-            throw BadRequest("Google Drive-kopplingen används av backupen " + joinNames(jobs) +
-                             ". Ta bort eller ändra backupen först.");
+            throw BadRequest("The Google Drive connection is used by the backup " + joinNames(jobs) +
+                             ". Delete or change the backup first.");
         }
         db.deleteDriveConnection(connection->id);
         oauth.forgetDrive(connection->id);
@@ -933,7 +933,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
                     std::optional<Identity> existing;
                     if (body.contains("id") && !body["id"].is_null()) {
                         auto found = db.getIdentity(body["id"].get<long long>());
-                        if (!found || found->accountId != account.id) throw NotFound("Avsändaren finns inte");
+                        if (!found || found->accountId != account.id) throw NotFound("The sender does not exist");
                         existing = found;
                     }
                     sendJson(res, mail.testIdentitySmtp(account, identityFromJson(body, existing)));
@@ -945,7 +945,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         if (!identity.useAccountSmtp && !body.value("skipTest", false)) {
             json test = mail.testIdentitySmtp(account, identity);
             if (!test["ok"].get<bool>()) {
-                sendJson(res, {{"error", "SMTP-testet misslyckades"}, {"test", test}}, 400);
+                sendJson(res, {{"error", "The SMTP test failed"}, {"test", test}}, 400);
                 return;
             }
         }
@@ -1020,7 +1020,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         q.flaggedOnly = req.get_param_value("flagged") == "1";
         q.beforeUid = static_cast<std::uint32_t>(std::max(0, intParam(req, "beforeUid", 0)));
         q.sort = req.has_param("sort") ? req.get_param_value("sort") : "date";
-        if (!isSortKey(q.sort)) throw BadRequest("Okänd sortering: " + q.sort);
+        if (!isSortKey(q.sort)) throw BadRequest("Unknown sort order: " + q.sort);
         q.descending = req.get_param_value("order") != "asc";
         sendJson(res, mail.listMessages(ownedAccountId(db, req, user), q));
     }));
@@ -1095,7 +1095,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     // Sökning över flera mappar och konton. Går mot mejlcachen, så bara det som har hunnit synkas hittas.
     // body: {accountId?, folder?, q, from, to, after, before, unread, flagged, attachments, includeTrash, page, pageSize}
     server.Post("/api/search", authed([&db, mailCache](const Request& req, Response& res, const User& user) {
-        if (!mailCache) throw BadRequest("Sökning i alla mappar kräver att mejlcachen är påslagen (MAIL_CACHE)");
+        if (!mailCache) throw BadRequest("Searching all folders requires the mail cache to be enabled (MAIL_CACHE)");
         json body = parseBody(req);
         auto text = [&](const char* key, std::size_t maxBytes) {
             auto it = body.find(key);
@@ -1131,7 +1131,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         q.page = static_cast<int>(std::clamp<std::int64_t>(number("page"), 0, 100000));
         q.pageSize = static_cast<int>(std::clamp<std::int64_t>(number("pageSize") ? number("pageSize") : 50, 1, 200));
         q.sort = body.contains("sort") && body["sort"].is_string() ? body["sort"].get<std::string>() : "date";
-        if (!isSortKey(q.sort)) throw BadRequest("Okänd sortering: " + q.sort);
+        if (!isSortKey(q.sort)) throw BadRequest("Unknown sort order: " + q.sort);
         q.descending = text("order", 10) != "asc";
         sendJson(res, mailCache->search(q));
     }));
@@ -1139,14 +1139,14 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     // Ändringar i kontots cache sedan ett ändringsnummer, för appen: ?since=<modseq>&limit=<rader>.
     // since=0 ger mapplistan och det aktuella numret; första fyllningen görs med /messages per mapp.
     server.Get("/api/accounts/:id/changes", authed([&db, mailCache](const Request& req, Response& res, const User& user) {
-        if (!mailCache) throw BadRequest("Ändringslistan kräver att mejlcachen är påslagen (MAIL_CACHE)");
+        if (!mailCache) throw BadRequest("The change list requires the mail cache to be enabled (MAIL_CACHE)");
         long long accountId = ownedAccountId(db, req, user);
         std::int64_t since = 0;
         if (req.has_param("since")) {
             try {
                 since = std::stoll(req.get_param_value("since"));
             } catch (...) {
-                throw BadRequest("Ogiltigt värde för since");
+                throw BadRequest("Invalid value for since");
             }
         }
         int limit = std::clamp(intParam(req, "limit", 500), 1, 2000);
@@ -1169,7 +1169,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
     auto deviceToken = [](const json& body) {
         std::string token = body.value("token", std::string());
         if (token.empty() || token.size() > 4096 || token.find_first_of(" \t\r\n") != std::string::npos) {
-            throw BadRequest("Ogiltig enhetstoken");
+            throw BadRequest("Invalid device token");
         }
         return token;
     };
@@ -1198,7 +1198,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         d.appVersion = textutil::truncateUtf8Bytes(body.value("appVersion", std::string()), 32);
         if (body.contains("notify") && !body["notify"].is_null()) {
             const json& notify = body["notify"];
-            if (!notify.is_object()) throw BadRequest("notify ska vara ett objekt med konto-id som nycklar");
+            if (!notify.is_object()) throw BadRequest("notify must be an object keyed by account id");
             json clean = json::object();
             std::size_t folders = 0;
             for (auto it = notify.begin(); it != notify.end(); ++it) {
@@ -1206,16 +1206,16 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
                 try {
                     accountId = std::stoll(it.key());
                 } catch (...) {
-                    throw BadRequest("Ogiltigt konto-id i notify: " + it.key());
+                    throw BadRequest("Invalid account id in notify: " + it.key());
                 }
                 ownedAccount(db, accountId, user);
-                if (!it->is_array()) throw BadRequest("notify: mapparna för ett konto ska vara en lista");
+                if (!it->is_array()) throw BadRequest("notify: the folders for an account must be a list");
                 json list = json::array();
                 for (const auto& f : *it) {
                     if (!f.is_string() || f.get<std::string>().empty() || f.get<std::string>().size() > 1000) {
-                        throw BadRequest("notify: ogiltigt mappnamn");
+                        throw BadRequest("notify: invalid folder name");
                     }
-                    if (++folders > 500) throw BadRequest("notify: för många mappar");
+                    if (++folders > 500) throw BadRequest("notify: too many folders");
                     list.push_back(f);
                 }
                 clean[it.key()] = std::move(list);
@@ -1238,7 +1238,7 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         auto at = sender.find('@');
         if (sender.size() > 320 || at == std::string::npos || at == 0 || at + 1 >= sender.size() ||
             sender.find_first_of(" \t\r\n<>,;") != std::string::npos) {
-            throw BadRequest("Ogiltig e-postadress");
+            throw BadRequest("Invalid email address");
         }
         return sender;
     };

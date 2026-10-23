@@ -15,6 +15,7 @@ import {
   quoteText,
 } from './utils'
 import { QUOTE_STYLE, escapeHtml, messageHtml, sanitizeHtml, signatureHtml, textToHtml } from './richtext'
+import { t } from './i18n'
 
 const PAGE_SIZE = 100
 
@@ -281,7 +282,7 @@ export const useMailStore = defineStore('mail', () => {
   }
 
   async function createFolder(accountId, parentPath, delimiter) {
-    const name = window.prompt('Namn på den nya mappen:')
+    const name = window.prompt(t('Name of the new folder:'))
     if (!name) return
     const path = parentPath ? `${parentPath}${delimiter || '/'}${name}` : name
     try {
@@ -296,7 +297,7 @@ export const useMailStore = defineStore('mail', () => {
   async function renameFolder(accountId, folder) {
     const delimiter = folder.delimiter
     const parts = delimiter ? folder.path.split(delimiter) : [folder.path]
-    const name = window.prompt('Nytt namn på mappen:', parts[parts.length - 1])
+    const name = window.prompt(t('New name for the folder:'), parts[parts.length - 1])
     if (!name || name === parts[parts.length - 1]) return
     parts[parts.length - 1] = name
     const to = parts.join(delimiter)
@@ -323,19 +324,19 @@ export const useMailStore = defineStore('mail', () => {
   async function moveFolder(accountId, folder, parent, { confirm = true } = {}) {
     if (!canMoveFolder(folder) || parent === parentPath(folder)) return false
     if (parent && isInsideFolder(parent, folder)) {
-      notify('En mapp kan inte flyttas in i sig själv', 'error')
+      notify(t('A folder cannot be moved into itself'), 'error')
       return false
     }
     const name = folder.delimiter ? folder.path.slice(folder.path.lastIndexOf(folder.delimiter) + 1) : folder.path
     const delimiter = folder.delimiter || folderInfo(accountId, parent)?.delimiter || '/'
     const to = parent ? `${parent}${delimiter}${name}` : name
     if (folderInfo(accountId, to)) {
-      notify(`Det finns redan en mapp som heter "${name}" där`, 'error')
+      notify(t('There is already a folder named "{name}" there', { name }), 'error')
       return false
     }
     const target = parent ? folderInfo(accountId, parent) : null
-    const targetLabel = parent ? `"${target ? target.path : parent}"` : 'översta nivån'
-    if (confirm && !window.confirm(`Flytta mappen "${name}" till ${targetLabel}?`)) return false
+    const targetLabel = parent ? `"${target ? target.path : parent}"` : t('the top level')
+    if (confirm && !window.confirm(t('Move folder "{name}" to {target}?', { name, target: targetLabel }))) return false
     try {
       await api.renameFolder(accountId, folder.path, to)
       // Behåll utfällda undermappar och den öppna mappen under den nya sökvägen.
@@ -355,13 +356,13 @@ export const useMailStore = defineStore('mail', () => {
       await loadFolders(accountId)
       // Vissa servrar svarar OK utan att flytta mappen.
       if (folderInfo(accountId, folder.path) && !folderInfo(accountId, to)) {
-        notify('E-postservern flyttade inte mappen', 'error')
+        notify(t('The mail server did not move the folder'), 'error')
         return false
       }
       if (current.accountId === accountId && current.folder && isInsideFolder(current.folder, folder)) {
         await selectFolder(accountId, to + current.folder.slice(folder.path.length))
       }
-      notify(`Mappen "${name}" flyttades`)
+      notify(t('Folder "{name}" was moved', { name }))
       return true
     } catch (e) {
       notify(e.message, 'error')
@@ -370,7 +371,7 @@ export const useMailStore = defineStore('mail', () => {
   }
 
   async function deleteFolder(accountId, folder) {
-    if (!window.confirm(`Ta bort mappen "${folder.name}" och allt innehåll? Det går inte att ångra.`)) return
+    if (!window.confirm(t('Delete folder "{name}" and all its contents? This cannot be undone.', { name: folder.name }))) return
     try {
       await api.deleteFolder(accountId, folder.path)
       if (current.accountId === accountId && current.folder === folder.path) await selectFolder(accountId, 'INBOX')
@@ -703,18 +704,22 @@ export const useMailStore = defineStore('mail', () => {
     const groups = groupByFolder(list)
     const fromTrash = groups.filter((g) => folderInfo(g.accountId, g.folder)?.specialUse === 'trash')
     const permanent = fromTrash.reduce((n, g) => n + g.uids.length, 0)
-    if (permanent && !window.confirm(`Radera ${permanent} meddelande(n) permanent?`)) return
-    const done = []
-    try {
-      for (const group of groups) {
+    if (permanent && !window.confirm(permanent === 1 ? t('Permanently delete 1 message?') : t('Permanently delete {n} messages?', { n: permanent }))) return
+    // Ta bort ur listan direkt och låt servern (som kan ta lång tid mot t.ex. Gmail) jobba i bakgrunden.
+    // Misslyckas något läses listan in igen så att de meddelanden som faktiskt finns kvar kommer tillbaka.
+    removeFromList(list)
+    const accountIds = new Set(groups.map((g) => g.accountId))
+    let failed = false
+    for (const group of groups) {
+      try {
         await api.remove(group.accountId, group.folder, group.uids)
-        done.push(...group.keys)
+      } catch (e) {
+        failed = true
+        notify(e.message, 'error')
       }
-    } catch (e) {
-      notify(e.message, 'error')
     }
-    if (done.length) removeFromList(done)
-    for (const accountId of new Set(groups.map((g) => g.accountId))) loadFolders(accountId)
+    for (const accountId of accountIds) loadFolders(accountId)
+    if (failed) loadMessages({ keepSelection: true })
   }
 
   // Flyttar till en mapp i targetAccountId (det aktuella kontot om inget anges). I en samlad vy kan markeringen
@@ -740,9 +745,16 @@ export const useMailStore = defineStore('mail', () => {
     if (done.length) removeFromList(done)
     if (moved) {
       loadFolders(targetAccountId)
-      notify(`${moved} meddelande(n) flyttades`)
+      notify(moved === 1 ? t('1 message was moved') : t('{n} messages were moved', { n: moved }))
     }
-    if (skipped) notify(`${skipped} meddelande(n) ligger i ett annat konto och flyttades inte. Flytt mellan konton stöds inte ännu.`, 'error')
+    if (skipped) {
+      notify(
+        skipped === 1
+          ? t('1 message is in another account and was not moved. Moving between accounts is not supported yet.')
+          : t('{n} messages are in another account and were not moved. Moving between accounts is not supported yet.', { n: skipped }),
+        'error',
+      )
+    }
   }
 
   // Skräppost och arkiv finns per konto, så markeringen delas upp per konto.
@@ -764,8 +776,8 @@ export const useMailStore = defineStore('mail', () => {
     }
   }
 
-  const markJunk = (keys) => moveToSpecial('junk', 'Kontot har ingen skräppostmapp', keys)
-  const archive = (keys) => moveToSpecial('archive', 'Kontot har ingen arkivmapp', keys)
+  const markJunk = (keys) => moveToSpecial('junk', t('The account has no junk folder'), keys)
+  const archive = (keys) => moveToSpecial('archive', t('The account has no archive folder'), keys)
 
   // --- Skriva meddelanden -----------------------------------------------
 
@@ -809,7 +821,7 @@ export const useMailStore = defineStore('mail', () => {
   function startCompose(mode = 'new', message = openMessage.value) {
     const accountId = message?.accountId ?? current.accountId ?? accounts.value[0]?.id
     if (!accountId) {
-      notify('Lägg till ett konto först', 'error')
+      notify(t('Add an account first'), 'error')
       return
     }
     let sender = senders.value.find((s) => s.accountId === accountId && s.identityId === null)
@@ -858,7 +870,7 @@ export const useMailStore = defineStore('mail', () => {
           draft.cc = formatAddressList(message.cc.filter(notSelf))
         }
         draft.subject = prefixSubject('Re:', message.subject)
-        const header = `Den ${formatFullDate(message.date)} skrev ${displayName(message.from[0])}:`
+        const header = t('On {date}, {name} wrote:', { date: formatFullDate(message.date), name: displayName(message.from[0]) })
         draft.text = `\n\n${header}\n${quoteText(body)}${signatureFor(sender)}`
         draft.html =
           `<div><br></div><div>${escapeHtml(header)}</div>` +
@@ -870,13 +882,13 @@ export const useMailStore = defineStore('mail', () => {
       } else if (mode === 'forward') {
         draft.subject = prefixSubject('Fwd:', message.subject)
         const lines = [
-          '-------- Vidarebefordrat meddelande --------',
-          `Ämne: ${message.subject}`,
-          `Datum: ${formatFullDate(message.date)}`,
-          `Från: ${formatAddressList(message.from)}`,
-          `Till: ${formatAddressList(message.to)}`,
+          `-------- ${t('Forwarded message')} --------`,
+          `${t('Subject')}: ${message.subject}`,
+          `${t('Date')}: ${formatFullDate(message.date)}`,
+          `${t('From')}: ${formatAddressList(message.from)}`,
+          `${t('To')}: ${formatAddressList(message.to)}`,
         ]
-        if (message.cc.length) lines.push(`Kopia: ${formatAddressList(message.cc)}`)
+        if (message.cc.length) lines.push(`${t('Cc')}: ${formatAddressList(message.cc)}`)
         draft.text = `${signatureFor(sender)}\n\n${lines.join('\n')}\n\n${body}`
         draft.html =
           `<div><br></div>${signatureHtml(sender)}<div><br></div>` +

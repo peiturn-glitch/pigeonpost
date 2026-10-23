@@ -1,6 +1,7 @@
 // Läser prefs.js ur en Thunderbird-export (zip) direkt i webbläsaren.
 // Bara centralkatalogen och den aktuella filen läses, så även exporter på flera GB med e-post
 // går snabbt och laddas aldrig upp till servern.
+import { t } from './i18n'
 
 const EOCD = 0x06054b50
 const ZIP64_LOCATOR = 0x07064b50
@@ -29,7 +30,7 @@ async function locateCentralDirectory(file) {
       break
     }
   }
-  if (eocd < 0) throw new Error('Filen är ingen giltig zip-fil.')
+  if (eocd < 0) throw new Error(t('The file is not a valid zip file.'))
 
   let size = tail.getUint32(eocd + 12, true)
   let offset = tail.getUint32(eocd + 16, true)
@@ -38,11 +39,11 @@ async function locateCentralDirectory(file) {
   if (offset === 0xffffffff || size === 0xffffffff) {
     const locator = eocd - 20
     if (locator < 0 || tail.getUint32(locator, true) !== ZIP64_LOCATOR) {
-      throw new Error('Zip-filen använder ZIP64 men saknar ZIP64-katalog.')
+      throw new Error(t('The zip file uses ZIP64 but has no ZIP64 directory.'))
     }
     const zip64Offset = u64(tail, locator + 8)
     const record = await readBytes(file, zip64Offset, 56)
-    if (record.getUint32(0, true) !== ZIP64_EOCD) throw new Error('Ogiltig ZIP64-katalog.')
+    if (record.getUint32(0, true) !== ZIP64_EOCD) throw new Error(t('Invalid ZIP64 directory.'))
     size = u64(record, 40)
     offset = u64(record, 48)
   }
@@ -84,7 +85,7 @@ function* centralEntries(view) {
 
 async function readEntry(file, entry) {
   const header = await readBytes(file, entry.localOffset, 30)
-  if (header.getUint32(0, true) !== LOCAL_HEADER) throw new Error('Skadad zip-fil.')
+  if (header.getUint32(0, true) !== LOCAL_HEADER) throw new Error(t('Corrupt zip file.'))
   const dataStart = entry.localOffset + 30 + header.getUint16(26, true) + header.getUint16(28, true)
   const blob = file.slice(dataStart, dataStart + entry.compressedSize)
 
@@ -93,7 +94,7 @@ async function readEntry(file, entry) {
     const stream = blob.stream().pipeThrough(new DecompressionStream('deflate-raw'))
     return new TextDecoder().decode(await new Response(stream).arrayBuffer())
   }
-  throw new Error(`Zip-filen använder en komprimering som inte stöds (metod ${entry.method}).`)
+  throw new Error(t('The zip file uses an unsupported compression method (method {method}).', { method: entry.method }))
 }
 
 // Returnerar innehållet i prefs.js, antingen i zip-filens rot eller i en enda toppmapp
@@ -107,6 +108,6 @@ export async function readPrefsFromZip(file) {
       if (!best || entry.name.length < best.name.length) best = entry
     }
   }
-  if (!best) throw new Error('Zip-filen innehåller ingen prefs.js. Är det en Thunderbird-export?')
+  if (!best) throw new Error(t('The zip file contains no prefs.js. Is it a Thunderbird export?'))
   return readEntry(file, best)
 }

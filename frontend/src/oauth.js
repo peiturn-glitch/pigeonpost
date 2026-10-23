@@ -1,4 +1,5 @@
 import { api } from './api'
+import { t } from './i18n'
 
 const TIMEOUT_MS = 10 * 60 * 1000
 
@@ -25,11 +26,11 @@ export function signInWithGoogle(loginHint = '', start = api.oauthStart) {
     }
     if (cancelled) {
       popup?.close()
-      throw new Error('Inloggningen avbröts.')
+      throw new Error(t('Sign-in was cancelled.'))
     }
     if (popup) popup.location.href = started.url
     else if (!window.open(started.url, '_blank')) {
-      throw new Error('Webbläsaren blockerade inloggningsfönstret. Tillåt popup-fönster för sidan och försök igen.')
+      throw new Error(t('The browser blocked the sign-in window. Allow pop-ups for this site and try again.'))
     }
 
     return new Promise((resolve, reject) => {
@@ -51,14 +52,14 @@ export function signInWithGoogle(loginHint = '', start = api.oauthStart) {
           const status = await api.oauthStatus(started.state)
           if (!status.done) return
           if (status.ok) finish(resolve, { state: started.state, email: status.email, name: status.name })
-          else finish(reject, new Error(status.error || 'Google-inloggningen misslyckades.'))
+          else finish(reject, new Error(status.error || t('Google sign-in failed.')))
         } catch (e) {
           finish(reject, e)
         }
       }
 
       const timer = setInterval(() => {
-        if (Date.now() > deadline) finish(reject, new Error('Inloggningen tog för lång tid. Försök igen.'))
+        if (Date.now() > deadline) finish(reject, new Error(t('Sign-in took too long. Please try again.')))
         else check()
       }, 1500)
       if (channel) {
@@ -72,7 +73,7 @@ export function signInWithGoogle(loginHint = '', start = api.oauthStart) {
         } catch {
           // Fönstret kan redan vara stängt eller frikopplat.
         }
-        finish(reject, new Error('Inloggningen avbröts.'))
+        finish(reject, new Error(t('Sign-in was cancelled.')))
       }
     })
   })()

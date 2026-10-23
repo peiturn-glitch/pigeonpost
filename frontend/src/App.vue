@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api, onUnauthorized } from './api'
 import LoginView from './components/LoginView.vue'
 import MailLayout from './components/MailLayout.vue'
+import { t } from './i18n'
 import { useMailStore } from './store'
 
 const store = useMailStore()
@@ -48,10 +49,10 @@ onMounted(checkSession)
 </script>
 
 <template>
-  <div v-if="state === 'loading'" class="center muted">Laddar…</div>
+  <div v-if="state === 'loading'" class="center muted">{{ t('Loading…') }}</div>
   <div v-else-if="state === 'error'" class="center">
-    <p class="error-text">Kunde inte nå servern: {{ error }}</p>
-    <button class="btn" @click="checkSession">Försök igen</button>
+    <p class="error-text">{{ t('Could not reach the server: {error}', { error }) }}</p>
+    <button class="btn" @click="checkSession">{{ t('Try again') }}</button>
   </div>
   <LoginView v-else-if="state === 'setup' || state === 'login'" :setup="state === 'setup'" @authenticated="onAuthenticated" />
   <MailLayout v-else :key="store.user?.id" @logout="onLogout" />

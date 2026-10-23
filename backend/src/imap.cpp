@@ -249,11 +249,11 @@ void ImapClient::readGreeting() {
     std::string greeting = readUnit();
     if (greeting.rfind("* BYE", 0) == 0) {
         conn_.close();
-        throw MailServerError("Servern avvisade anslutningen: " + greeting);
+        throw MailServerError("The server rejected the connection: " + greeting);
     }
     if (greeting.rfind("* OK", 0) != 0 && greeting.rfind("* PREAUTH", 0) != 0) {
         conn_.close();
-        throw NetError("Oväntat svar från IMAP-servern: " + greeting.substr(0, 200));
+        throw NetError("Unexpected response from the IMAP server: " + greeting.substr(0, 200));
     }
 }
 
@@ -268,7 +268,7 @@ void ImapClient::connect(const std::string& host, int port, Security security, b
     if (security == Security::StartTls) {
         if (!hasCapability("STARTTLS")) {
             conn_.close();
-            throw MailServerError("IMAP-servern stöder inte STARTTLS");
+            throw MailServerError("The IMAP server does not support STARTTLS");
         }
         execOk(ImapCommand("STARTTLS"));
         conn_.startTls(host, tlsVerify);
@@ -324,7 +324,7 @@ void ImapClient::login(const std::string& user, const std::string& password) {
         resp = exec(ImapCommand("LOGIN ").str(user).raw(" ").str(password));
     }
     if (resp.status != "OK") {
-        throw MailServerError("Inloggningen avvisades av IMAP-servern: " + resp.text);
+        throw MailServerError("Login was rejected by the IMAP server: " + resp.text);
     }
     refreshCapabilities();
 }
@@ -333,8 +333,8 @@ void ImapClient::loginXOAuth2(const std::string& user, const std::string& access
     std::string payload = "user=" + user + "\x01" + "auth=Bearer " + accessToken + "\x01\x01";
     ImapResponse resp = authenticate("XOAUTH2", base64(payload));
     if (resp.status != "OK") {
-        throw MailServerError("Google-inloggningen avvisades av IMAP-servern: " + resp.text +
-                              ". Logga in med Google igen i kontoinställningarna.");
+        throw MailServerError("Google sign-in was rejected by the IMAP server: " + resp.text +
+                              ". Sign in with Google again in the account settings.");
     }
     refreshCapabilities();
 }
@@ -350,7 +350,7 @@ void ImapClient::logout() {
 }
 
 ImapResponse ImapClient::exec(const ImapCommand& cmd) {
-    if (!conn_.isOpen()) throw NetError("Inte ansluten till IMAP-servern");
+    if (!conn_.isOpen()) throw NetError("Not connected to the IMAP server");
 
     std::string tag = nextTag();
     bool literalPlus = hasCapability("LITERAL+");
@@ -403,7 +403,7 @@ ImapResponse ImapClient::exec(const ImapCommand& cmd) {
 ImapResponse ImapClient::execOk(const ImapCommand& cmd) {
     ImapResponse resp = exec(cmd);
     if (resp.status != "OK") {
-        throw MailServerError("IMAP-fel: " + (resp.text.empty() ? resp.status : resp.text));
+        throw MailServerError("IMAP error: " + (resp.text.empty() ? resp.status : resp.text));
     }
     return resp;
 }
@@ -500,7 +500,7 @@ std::uint32_t ImapClient::open(const char* command, const std::string& folder) {
     auto resp = exec(ImapCommand(command).mailbox(folder));
     if (resp.status != "OK") {
         selected_.reset();
-        throw MailServerError("Kunde inte öppna mappen " + folder + ": " + resp.text);
+        throw MailServerError("Could not open folder " + folder + ": " + resp.text);
     }
     selected_ = folder;
     std::uint32_t exists = 0;

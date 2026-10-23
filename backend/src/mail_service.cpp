@@ -45,7 +45,7 @@ std::string imapFlag(const std::string& name) {
     static const std::map<std::string, std::string> known = {
         {"seen", "\\Seen"}, {"flagged", "\\Flagged"}, {"answered", "\\Answered"}, {"draft", "\\Draft"}};
     auto it = known.find(name);
-    if (it == known.end()) throw BadRequest("Okänd flagga: " + name);
+    if (it == known.end()) throw BadRequest("Unknown flag: " + name);
     return it->second;
 }
 
@@ -118,7 +118,7 @@ std::shared_ptr<MailService::Session> MailService::session(long long accountId) 
 
 Account MailService::account(long long accountId) {
     auto acc = db_.getAccount(accountId);
-    if (!acc) throw NotFound("Kontot finns inte");
+    if (!acc) throw NotFound("The account does not exist");
     return *acc;
 }
 
@@ -148,8 +148,8 @@ auto MailService::withImap(long long accountId, F&& fn) {
             s->client->noop();
             s->client->setTimeout(kImapTimeoutSeconds);
         } catch (const std::exception& e) {
-            std::cerr << "[imap] konto " << accountId << ": anslutningen svarade inte på NOOP (" << e.what()
-                      << "); ansluter på nytt\n";
+            std::cerr << "[imap] account " << accountId << ": the connection did not respond to NOOP (" << e.what()
+                      << "); reconnecting\n";
             s->client.reset();
         }
     }
@@ -158,7 +158,7 @@ auto MailService::withImap(long long accountId, F&& fn) {
         s->client = connectImap(account(accountId));
         auto took = std::chrono::steady_clock::now() - start;
         if (took > kSlowConnectLog) {
-            std::cerr << "[imap] konto " << accountId << ": uppkopplingen tog "
+            std::cerr << "[imap] account " << accountId << ": connecting took "
                       << std::chrono::duration_cast<std::chrono::milliseconds>(took).count() / 1000.0 << " s\n";
         }
     };
@@ -173,7 +173,7 @@ auto MailService::withImap(long long accountId, F&& fn) {
         if (!reused) throw;
         // Servern har stängt en återanvänd anslutning (t.ex. autologout). Kommandot nådde då inte
         // fram, så det är säkert att försöka en gång till på en ny anslutning.
-        std::cerr << "[imap] konto " << accountId << ": " << e.what() << "; ansluter på nytt\n";
+        std::cerr << "[imap] account " << accountId << ": " << e.what() << "; reconnecting\n";
     }
     connect();
     try {
@@ -277,7 +277,7 @@ json MailService::listFoldersLive(long long accountId, bool withStatus) {
 }
 
 void MailService::createFolder(long long accountId, const std::string& path) {
-    if (path.empty()) throw BadRequest("Mappnamn saknas");
+    if (path.empty()) throw BadRequest("Folder name is missing");
     withImap(accountId, [&](ImapClient& client, Session& s) {
         client.createFolder(path);
         s.specialResolved = false;
@@ -286,7 +286,7 @@ void MailService::createFolder(long long accountId, const std::string& path) {
 }
 
 void MailService::deleteFolder(long long accountId, const std::string& path) {
-    if (path.empty() || path == "INBOX") throw BadRequest("Den mappen kan inte tas bort");
+    if (path.empty() || path == "INBOX") throw BadRequest("That folder cannot be deleted");
     withImap(accountId, [&](ImapClient& client, Session& s) {
         client.deleteFolder(path);
         s.specialResolved = false;
@@ -297,7 +297,7 @@ void MailService::deleteFolder(long long accountId, const std::string& path) {
 void MailService::renameFolder(long long accountId, const std::string& from, const std::string& to) {
     if (from.empty() || to.empty() || from == "INBOX") throw BadRequest("Ogiltigt mappnamn");
     if (to.size() > from.size() && to.compare(0, from.size(), from) == 0 && (to[from.size()] == '/' || to[from.size()] == '.')) {
-        throw BadRequest("En mapp kan inte flyttas in i sig själv");
+        throw BadRequest("A folder cannot be moved into itself");
     }
     withImap(accountId, [&](ImapClient& client, Session& s) {
         client.renameFolder(from, to);
@@ -391,7 +391,7 @@ std::string MailService::rawMessage(long long accountId, ImapClient& client, con
     if (auto cached = rawCache_.get(accountId, ref.folder, ref.uid)) return *cached;
     client.select(ref.folder);
     auto fetched = client.uidFetch(std::to_string(ref.uid), "(UID BODY.PEEK[])");
-    if (fetched.empty()) throw NotFound("Meddelandet finns inte längre");
+    if (fetched.empty()) throw NotFound("The message no longer exists");
     rawCache_.put(accountId, ref.folder, ref.uid, fetched.front().body);
     return fetched.front().body;
 }
@@ -409,7 +409,7 @@ json MailService::getMessage(long long accountId, const MessageRef& ref, bool ma
             return *cached;
         }
         if (cache_->offline(accountId)) {
-            throw MailServerError("Mejlservern går inte att nå, och det här meddelandet har inte hunnit sparas i cachen.");
+            throw MailServerError("The mail server cannot be reached, and this message has not yet been saved to the cache.");
         }
     }
     try {
@@ -428,7 +428,7 @@ json MailService::getMessageLive(long long accountId, const MessageRef& ref, boo
         std::string raw = rawMessage(accountId, client, ref);
         client.select(ref.folder);
         auto flagsFetch = client.uidFetch(std::to_string(ref.uid), "(UID FLAGS)");
-        if (flagsFetch.empty()) throw NotFound("Meddelandet finns inte längre");
+        if (flagsFetch.empty()) throw NotFound("The message no longer exists");
         auto flags = flagsFetch.front().flags;
         bool markedSeen = false;
         if (markSeen && !flags.count("\\seen")) {
@@ -523,7 +523,7 @@ NewMessages MailService::newMessages(long long accountId, const std::string& fol
 
 bool MailService::moveByMessageId(long long accountId, const std::string& folder, const std::string& messageId,
                                   const std::string& target) {
-    if (messageId.empty() || target.empty() || target == folder) throw BadRequest("Ogiltig flytt");
+    if (messageId.empty() || target.empty() || target == folder) throw BadRequest("Invalid move");
     std::vector<std::uint32_t> moved;
     withImap(accountId, [&](ImapClient& client, Session&) {
         client.select(folder);
@@ -545,7 +545,7 @@ std::string MailService::rawMessageCached(long long accountId, const MessageRef&
 mime::Attachment MailService::getAttachment(long long accountId, const MessageRef& ref, int index) {
     auto msg = mime::parseMessage(rawMessageCached(accountId, ref));
     if (index < 0 || static_cast<std::size_t>(index) >= msg.attachments.size()) {
-        throw NotFound("Bilagan finns inte");
+        throw NotFound("The attachment does not exist");
     }
     return std::move(msg.attachments[static_cast<std::size_t>(index)]);
 }
@@ -576,7 +576,7 @@ void MailService::setFlags(long long accountId, const std::string& folder, const
 void MailService::moveMessages(long long accountId, const std::string& folder,
                                const std::vector<std::uint32_t>& uids, const std::string& target) {
     if (uids.empty()) return;
-    if (target.empty() || target == folder) throw BadRequest("Ogiltig målmapp");
+    if (target.empty() || target == folder) throw BadRequest("Invalid target folder");
     withImap(accountId, [&](ImapClient& client, Session&) {
         client.select(folder);
         client.uidMove(ImapClient::uidSetFrom(uids), target);
@@ -610,7 +610,7 @@ Account MailService::applySender(const Account& acc, mime::OutgoingMessage& mess
     if (!options.identityId) return acc;
 
     auto identity = db_.getIdentity(*options.identityId);
-    if (!identity || identity->accountId != acc.id) throw BadRequest("Avsändaren hör inte till kontot");
+    if (!identity || identity->accountId != acc.id) throw BadRequest("The sender does not belong to the account");
     message.fromName = identity->name;
     message.fromEmail = identity->email;
     if (message.replyTo.empty()) message.replyTo = identity->replyTo;
@@ -652,10 +652,10 @@ json MailService::send(long long accountId, mime::OutgoingMessage message, const
                     client.append(*sent, "\\Seen", built.data);
                     if (cache_) cache_->folderTouched(accountId, *sent);
                 } catch (const MailServerError& e) {
-                    warnings.push_back(std::string("Kunde inte spara i Skickat: ") + e.what());
+                    warnings.push_back(std::string("Could not save to Sent: ") + e.what());
                 }
             } else {
-                warnings.push_back("Ingen Skickat-mapp hittades; en kopia sparades inte.");
+                warnings.push_back("No Sent folder was found; a copy was not saved.");
             }
             if (options.replyTo) {
                 client.select(options.replyTo->folder);
@@ -671,7 +671,7 @@ json MailService::send(long long accountId, mime::OutgoingMessage message, const
             }
         });
     } catch (const std::exception& e) {
-        warnings.push_back(std::string("Efterbehandling misslyckades: ") + e.what());
+        warnings.push_back(std::string("Post-processing failed: ") + e.what());
     }
     return {{"ok", true}, {"warnings", warnings}};
 }
@@ -699,7 +699,7 @@ json MailService::saveDraft(long long accountId, mime::OutgoingMessage message, 
                 client.expungeUids(old);
                 if (cache_) cache_->messagesRemoved(accountId, options.draft->folder, {options.draft->uid}, "");
             } catch (const MailServerError& e) {
-                std::cerr << "[drafts] kunde inte ta bort gammalt utkast: " << e.what() << "\n";
+                std::cerr << "[drafts] could not delete the old draft: " << e.what() << "\n";
             }
         }
         json out = {{"folder", *drafts}};

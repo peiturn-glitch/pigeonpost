@@ -52,30 +52,30 @@ int main(int argc, char** argv) {
         brevduva::PushService push(config, db);
         brevduva::MailCache mailCache(config, db, mail, rawCache, push.configured() ? &push : nullptr);
         if (config.mailCache) mail.setCache(&mailCache);
-        std::cout << "[main] Mejlcache: " << (config.mailCache ? "på" : "avstängd (MAIL_CACHE=0)") << std::endl;
-        std::cout << "[main] Push till Android-appen: "
-                  << (push.configured() ? "aktiverad (Firebase-projekt " + push.projectId() + ")"
-                                        : "inte konfigurerad (FCM_SERVICE_ACCOUNT_FILE)")
+        std::cout << "[main] Mail cache: " << (config.mailCache ? "on" : "off (MAIL_CACHE=0)") << std::endl;
+        std::cout << "[main] Push to the Android app: "
+                  << (push.configured() ? "enabled (Firebase project " + push.projectId() + ")"
+                                        : "not configured (FCM_SERVICE_ACCOUNT_FILE)")
                   << std::endl;
         brevduva::BackupService backup(config, db, mail, oauth);
         brevduva::AiSorter aiSorter(config, db, mail);
-        std::cout << "[main] Google-inloggning för Gmail: " << (oauth.configured() ? "aktiverad" : "inte konfigurerad")
+        std::cout << "[main] Google sign-in for Gmail: " << (oauth.configured() ? "enabled" : "not configured")
                   << std::endl;
 
         if (config.legacyAppPassword) {
-            std::cerr << "[main] APP_PASSWORD används inte längre; logga in med användarkonton. "
-                         "Använd ADMIN_USERNAME/ADMIN_PASSWORD för att skapa en första administratör.\n";
+            std::cerr << "[main] APP_PASSWORD is no longer used; log in with user accounts. "
+                         "Use ADMIN_USERNAME/ADMIN_PASSWORD to create the first administrator.\n";
         }
         if (auth.setupRequired()) {
             if (!config.adminUsername.empty() && !config.adminPassword.empty()) {
                 brevduva::Auth::validateUsername(config.adminUsername);
                 brevduva::Auth::validatePassword(config.adminPassword);
                 db.createFirstAdmin(config.adminUsername, brevduva::crypto::hashPassword(config.adminPassword));
-                std::cout << "[main] Skapade administratören " << config.adminUsername << " från miljövariabler"
+                std::cout << "[main] Created administrator " << config.adminUsername << " from environment variables"
                           << std::endl;
             } else {
-                std::cerr << "[main] VARNING: inga användare finns. Den som först öppnar webbgränssnittet blir "
-                             "administratör. Sätt ADMIN_USERNAME/ADMIN_PASSWORD för att undvika det.\n";
+                std::cerr << "[main] WARNING: no users exist. Whoever opens the web interface first becomes "
+                             "an administrator. Set ADMIN_USERNAME/ADMIN_PASSWORD to avoid this.\n";
             }
         }
 
@@ -102,9 +102,9 @@ int main(int argc, char** argv) {
             server.set_mount_point("/android", config.androidDir, {{"Cache-Control", "no-cache"}});
             // Filer serveras före handlers; en fil som saknas ska ge 404 och inte index.html från SPA-fallbacken nedan.
             server.Get(R"(^/android/.*)", [](const httplib::Request&, httplib::Response& res) { res.status = 404; });
-            std::cout << "[main] Android-appen serveras från " << config.androidDir << " under /android" << std::endl;
+            std::cout << "[main] Serving the Android app from " << config.androidDir << " at /android" << std::endl;
         } else {
-            std::cout << "[main] Ingen Android-katalog (" << config.androidDir << "); /android är avstängd" << std::endl;
+            std::cout << "[main] No Android directory (" << config.androidDir << "); /android is disabled" << std::endl;
         }
 
         // Statiska filer från Vue-bygget, och index.html för alla övriga sökvägar (SPA-routing).
@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
                 res.set_content(ss.str(), "text/html; charset=utf-8");
             });
         } else {
-            std::cerr << "[main] Hittar inte " << config.staticDir << "; kör endast API\n";
+            std::cerr << "[main] Cannot find " << config.staticDir << "; running the API only\n";
         }
 
         server.set_logger([](const httplib::Request& req, const httplib::Response& res) {
@@ -173,14 +173,14 @@ int main(int argc, char** argv) {
         std::thread signalThread([&server, signals]() {
             int sig = 0;
             sigwait(&signals, &sig);
-            std::cout << "Signal " << sig << " mottagen, stänger ned" << std::endl;
+            std::cout << "Signal " << sig << " received, shutting down" << std::endl;
             server.stop();
         });
         signalThread.detach();
 
-        std::cout << "PigeonPost lyssnar på http://" << config.host << ":" << config.port << std::endl;
+        std::cout << "PigeonPost listening on http://" << config.host << ":" << config.port << std::endl;
         if (!server.listen(config.host, config.port)) {
-            std::cerr << "Kunde inte lyssna på " << config.host << ":" << config.port << "\n";
+            std::cerr << "Could not listen on " << config.host << ":" << config.port << "\n";
             return 1;
         }
         mailCache.stop();
@@ -189,7 +189,7 @@ int main(int argc, char** argv) {
         backup.stop();
         curl_global_cleanup();
     } catch (const std::exception& e) {
-        std::cerr << "Fel vid uppstart: " << e.what() << "\n";
+        std::cerr << "Startup error: " << e.what() << "\n";
         return 1;
     }
     return 0;

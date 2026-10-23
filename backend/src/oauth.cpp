@@ -70,7 +70,7 @@ std::size_t collect(char* data, std::size_t size, std::size_t n, void* userdata)
 // POST med formulärdata. Returnerar HTTP-status och svarskropp.
 std::pair<long, std::string> postForm(const std::string& url, const std::string& body) {
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), &curl_easy_cleanup);
-    if (!curl) throw std::runtime_error("curl_easy_init misslyckades");
+    if (!curl) throw std::runtime_error("curl_easy_init failed");
     std::string response;
     char errorBuffer[CURL_ERROR_SIZE] = {0};
     CURL* c = curl.get();
@@ -84,7 +84,7 @@ std::pair<long, std::string> postForm(const std::string& url, const std::string&
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
     CURLcode rc = curl_easy_perform(c);
     if (rc != CURLE_OK) {
-        throw NetError(std::string("Kunde inte nå Google: ") + (errorBuffer[0] ? errorBuffer : curl_easy_strerror(rc)));
+        throw NetError(std::string("Could not reach Google: ") + (errorBuffer[0] ? errorBuffer : curl_easy_strerror(rc)));
     }
     long status = 0;
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &status);
@@ -92,7 +92,7 @@ std::pair<long, std::string> postForm(const std::string& url, const std::string&
 }
 
 std::string describeTokenError(const json& body) {
-    std::string error = body.value("error", "okänt fel");
+    std::string error = body.value("error", "unknown error");
     std::string description = body.value("error_description", "");
     return description.empty() ? error : error + ": " + description;
 }
@@ -119,7 +119,7 @@ void GoogleOAuth::purgeExpired() {
 
 std::pair<std::string, std::string> GoogleOAuth::start(long long userId, const std::string& loginHint,
                                                        const std::string& redirectUri, Purpose purpose) {
-    if (!configured()) throw BadRequest("Google-inloggning är inte konfigurerad på servern");
+    if (!configured()) throw BadRequest("Google sign-in is not configured on the server");
 
     std::string state = crypto::toHex(crypto::randomBytes(24));
     Pending p;
@@ -171,9 +171,9 @@ bool GoogleOAuth::handleCallback(const std::string& state, const std::string& co
     result.done = true;
     try {
         if (!error.empty()) {
-            result.error = error == "access_denied" ? "Inloggningen avbröts." : "Google avvisade inloggningen (" + error + ").";
+            result.error = error == "access_denied" ? "Sign-in was cancelled." : "Google rejected the sign-in (" + error + ").";
         } else if (code.empty()) {
-            result.error = "Svaret från Google saknade kod.";
+            result.error = "The response from Google contained no code.";
         } else {
             auto [status, body] = postForm(tokenUrl_, formBody({{"grant_type", "authorization_code"},
                                                                 {"code", code},
@@ -183,7 +183,7 @@ bool GoogleOAuth::handleCallback(const std::string& state, const std::string& co
                                                                 {"code_verifier", pending.verifier}}));
             json j = json::parse(body, nullptr, false);
             if (status != 200 || j.is_discarded()) {
-                result.error = "Tokenutbytet misslyckades: " + (j.is_discarded() ? "ogiltigt svar" : describeTokenError(j));
+                result.error = "Token exchange failed: " + (j.is_discarded() ? "invalid response" : describeTokenError(j));
             } else {
                 result.accessToken = j.value("access_token", "");
                 result.refreshToken = j.value("refresh_token", "");
@@ -202,10 +202,10 @@ bool GoogleOAuth::handleCallback(const std::string& state, const std::string& co
                 // Google låter användaren avmarkera enskilda behörigheter på samtyckesskärmen.
                 std::string granted = " " + j.value("scope", std::string(kDriveScope)) + " ";
                 bool driveGranted = granted.find(std::string(" ") + kDriveScope + " ") != std::string::npos;
-                if (result.refreshToken.empty()) result.error = "Google skickade ingen refresh-token.";
-                else if (result.email.empty()) result.error = "Google skickade ingen verifierad e-postadress.";
+                if (result.refreshToken.empty()) result.error = "Google did not send a refresh token.";
+                else if (result.email.empty()) result.error = "Google did not send a verified email address.";
                 else if (pending.purpose == Purpose::Drive && !driveGranted) {
-                    result.error = "PigeonPost fick inte åtkomst till Google Drive. Logga in igen och bocka i rutan för Google Drive.";
+                    result.error = "PigeonPost was not granted access to Google Drive. Sign in again and tick the Google Drive box.";
                 }
             }
         }
@@ -241,24 +241,24 @@ std::optional<GoogleOAuth::Result> GoogleOAuth::take(const std::string& state, l
 
 std::string GoogleOAuth::accessToken(const Account& account) {
     if (!account.oauthAccessToken.empty()) return account.oauthAccessToken;
-    if (account.oauthRefreshToken.empty()) throw MailServerError("Kontot saknar Google-inloggning. Logga in med Google igen.");
+    if (account.oauthRefreshToken.empty()) throw MailServerError("The account has no Google sign-in. Sign in with Google again.");
     try {
         return cachedAccessToken("account:" + std::to_string(account.id), account.oauthRefreshToken, account.email);
     } catch (const MailServerError& e) {
         if (std::string(e.what()) != "invalid_grant") throw;
-        throw MailServerError("Google-inloggningen för " + account.email +
-                              " har upphört eller återkallats. Öppna kontoinställningarna och logga in med Google igen.");
+        throw MailServerError("The Google sign-in for " + account.email +
+                              " has expired or been revoked. Open the account settings and sign in with Google again.");
     }
 }
 
 std::string GoogleOAuth::accessToken(const DriveConnection& connection) {
-    if (connection.refreshToken.empty()) throw MailServerError("Google Drive-kopplingen saknar inloggning. Anslut Google Drive igen.");
+    if (connection.refreshToken.empty()) throw MailServerError("The Google Drive connection has no sign-in. Connect Google Drive again.");
     try {
         return cachedAccessToken("drive:" + std::to_string(connection.id), connection.refreshToken, connection.email);
     } catch (const MailServerError& e) {
         if (std::string(e.what()) != "invalid_grant") throw;
-        throw MailServerError("Google Drive-kopplingen för " + connection.email +
-                              " har upphört eller återkallats. Ta bort kopplingen och anslut Google Drive igen.");
+        throw MailServerError("The Google Drive connection for " + connection.email +
+                              " has expired or been revoked. Remove the connection and connect Google Drive again.");
     }
 }
 
@@ -271,7 +271,7 @@ std::string GoogleOAuth::cachedAccessToken(const std::string& cacheKey, const st
         auto it = tokens_.find(cacheKey);
         if (it != tokens_.end() && it->second.expires - kTokenMargin > Clock::now()) return it->second.token;
     }
-    if (!configured()) throw MailServerError("Google-inloggning är inte längre konfigurerad på servern");
+    if (!configured()) throw MailServerError("Google sign-in is no longer configured on the server");
 
     auto [status, body] = postForm(tokenUrl_, formBody({{"grant_type", "refresh_token"},
                                                         {"refresh_token", refreshToken},
@@ -279,9 +279,9 @@ std::string GoogleOAuth::cachedAccessToken(const std::string& cacheKey, const st
                                                         {"client_secret", clientSecret_}}));
     json j = json::parse(body, nullptr, false);
     if (status != 200 || j.is_discarded() || !j.contains("access_token")) {
-        std::string reason = j.is_discarded() ? "ogiltigt svar" : describeTokenError(j);
+        std::string reason = j.is_discarded() ? "invalid response" : describeTokenError(j);
         if (!j.is_discarded() && j.value("error", "") == "invalid_grant") throw MailServerError("invalid_grant");
-        throw MailServerError("Kunde inte förnya Google-inloggningen för " + label + ": " + reason);
+        throw MailServerError("Could not renew the Google sign-in for " + label + ": " + reason);
     }
 
     CachedToken cached{j.value("access_token", ""), Clock::now() + std::chrono::seconds(j.value("expires_in", 3600))};
@@ -305,7 +305,7 @@ void GoogleOAuth::revoke(const std::string& refreshToken) {
     try {
         postForm(revokeUrl_, formBody({{"token", refreshToken}}));
     } catch (const std::exception& e) {
-        std::cerr << "[oauth] kunde inte återkalla token: " << e.what() << "\n";
+        std::cerr << "[oauth] could not revoke token: " << e.what() << "\n";
     }
 }
 

@@ -77,14 +77,14 @@ PushService::PushService(const Config& config, Database& db) : db_(db) {
     if (config.fcmServiceAccountFile.empty()) return;
     std::ifstream in(config.fcmServiceAccountFile, std::ios::binary);
     if (!in) {
-        std::cerr << "[push] kan inte läsa " << config.fcmServiceAccountFile << "; push är avstängd\n";
+        std::cerr << "[push] cannot read " << config.fcmServiceAccountFile << "; push is disabled\n";
         return;
     }
     std::stringstream ss;
     ss << in.rdbuf();
     json j = json::parse(ss.str(), nullptr, false);
     if (j.is_discarded() || !j.is_object()) {
-        std::cerr << "[push] " << config.fcmServiceAccountFile << " är inte giltig JSON; push är avstängd\n";
+        std::cerr << "[push] " << config.fcmServiceAccountFile << " is not valid JSON; push is disabled\n";
         return;
     }
     clientEmail_ = j.value("client_email", "");
@@ -92,7 +92,7 @@ PushService::PushService(const Config& config, Database& db) : db_(db) {
     projectId_ = j.value("project_id", "");
     tokenUrl_ = config.fcmTokenUrl.empty() ? j.value("token_uri", "https://oauth2.googleapis.com/token") : config.fcmTokenUrl;
     if (clientEmail_.empty() || privateKey_.empty() || projectId_.empty()) {
-        std::cerr << "[push] tjänstekontofilen saknar client_email, private_key eller project_id; push är avstängd\n";
+        std::cerr << "[push] the service account file lacks client_email, private_key or project_id; push is disabled\n";
         return;
     }
     sendUrl_ = replaceAll(config.fcmUrl.empty() ? kDefaultSendUrl : config.fcmUrl, "{project}", projectId_);
@@ -153,7 +153,7 @@ void PushService::loop() {
         try {
             deliver(std::move(batch));
         } catch (const std::exception& e) {
-            std::cerr << "[push] utskick misslyckades: " << e.what() << "\n";
+            std::cerr << "[push] delivery failed: " << e.what() << "\n";
         }
     }
 }
@@ -260,8 +260,8 @@ bool PushService::sendToDevice(const Device& device, const std::vector<const New
         }
         HttpResult r = httpPost(sendUrl_, body, {"Authorization: Bearer " + token, "Content-Type: application/json"});
         if (r.status == 200) {
-            std::cout << "[push] notis till enheten \"" << device.name << "\" (användare " << device.userId << "): "
-                      << mails.size() << " nya i konto " << newest.accountId << std::endl;
+            std::cout << "[push] notification to device \"" << device.name << "\" (user " << device.userId << "): "
+                      << mails.size() << " new in account " << newest.accountId << std::endl;
             return true;
         }
         if (r.status == 401 && !refreshed) {
@@ -276,14 +276,14 @@ bool PushService::sendToDevice(const Device& device, const std::vector<const New
             continue;
         }
         if (tokenIsDead(r.status, r.body)) {
-            std::cout << "[push] enheten \"" << device.name << "\" (användare " << device.userId
-                      << ") är inte registrerad längre; tas bort" << std::endl;
+            std::cout << "[push] device \"" << device.name << "\" (user " << device.userId
+                      << ") is no longer registered; removing it" << std::endl;
             db_.deleteDeviceByToken(device.token);
             return false;
         }
         bool transient = r.status == 0 || r.status == 429 || r.status >= 500;
         if (!transient || attempt + 1 == kAttempts) {
-            std::cerr << "[push] FCM svarade " << r.status << " för enheten \"" << device.name << "\": "
+            std::cerr << "[push] FCM responded " << r.status << " for device \"" << device.name << "\": "
                       << (r.error.empty() ? textutil::truncateUtf8Bytes(r.body, 300) : r.error) << "\n";
             return true;
         }
@@ -306,12 +306,12 @@ std::string PushService::accessToken(bool forceRefresh) {
     std::string body = "grant_type=" + urlEncode("urn:ietf:params:oauth:grant-type:jwt-bearer") +
                        "&assertion=" + urlEncode(buildJwt(now()));
     HttpResult r = httpPost(tokenUrl_, body, {"Content-Type: application/x-www-form-urlencoded"});
-    if (r.status == 0) throw std::runtime_error("kunde inte nå " + tokenUrl_ + ": " + r.error);
+    if (r.status == 0) throw std::runtime_error("could not reach " + tokenUrl_ + ": " + r.error);
     json j = json::parse(r.body, nullptr, false);
     if (r.status != 200 || j.is_discarded() || !j.contains("access_token")) {
-        std::string reason = j.is_discarded() ? "ogiltigt svar" : j.value("error", "okänt fel");
+        std::string reason = j.is_discarded() ? "invalid response" : j.value("error", "unknown error");
         if (!j.is_discarded() && j.contains("error_description")) reason += ": " + j.value("error_description", "");
-        throw std::runtime_error("kunde inte hämta access-token för FCM (" + std::to_string(r.status) + "): " + reason);
+        throw std::runtime_error("could not fetch an access token for FCM (" + std::to_string(r.status) + "): " + reason);
     }
     token_ = j.value("access_token", "");
     tokenExpires_ = std::chrono::steady_clock::now() + std::chrono::seconds(j.value("expires_in", 3600));
@@ -323,7 +323,7 @@ PushService::HttpResult PushService::httpPost(const std::string& url, const std:
     HttpResult res;
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), &curl_easy_cleanup);
     if (!curl) {
-        res.error = "curl_easy_init misslyckades";
+        res.error = "curl_easy_init failed";
         return res;
     }
     char errorBuffer[CURL_ERROR_SIZE] = {0};

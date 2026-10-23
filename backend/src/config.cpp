@@ -35,7 +35,7 @@ std::string loadOrCreateSecret(const std::string& dataDir) {
         out << secret;
     }
     ::chmod(path.c_str(), 0600);
-    std::cerr << "[config] SECRET_KEY saknas; skapade " << path << "\n";
+    std::cerr << "[config] SECRET_KEY not set; created " << path << "\n";
     return secret;
 }
 

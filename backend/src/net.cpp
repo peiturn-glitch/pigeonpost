@@ -21,7 +21,7 @@ constexpr std::size_t kMaxLineLength = 16 * 1024 * 1024;
 
 std::string opensslError() {
     unsigned long code = ERR_get_error();
-    if (code == 0) return "okänt TLS-fel";
+    if (code == 0) return "unknown TLS error";
     char buf[256];
     ERR_error_string_n(code, buf, sizeof(buf));
     return buf;
@@ -41,10 +41,10 @@ void Connection::connect(const std::string& host, int port, int timeoutSeconds, 
     std::string portStr = std::to_string(port);
     int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
     if (rc != 0) {
-        throw NetError("Kunde inte slå upp " + host + ": " + gai_strerror(rc));
+        throw NetError("Could not resolve " + host + ": " + gai_strerror(rc));
     }
 
-    std::string lastError = "ingen adress";
+    std::string lastError = "no address";
     for (addrinfo* ai = result; ai != nullptr; ai = ai->ai_next) {
         // Icke-blockerande connect med poll, eftersom SO_SNDTIMEO inte gäller för connect():
         // en server som inte svarar skulle annars hålla anropet tills kernelns SYN-försök tar slut
@@ -59,7 +59,7 @@ void Connection::connect(const std::string& host, int port, int timeoutSeconds, 
             pfd.events = POLLOUT;
             int ready = ::poll(&pfd, 1, connectTimeoutSeconds * 1000);
             if (ready == 0) {
-                lastError = "servern svarade inte inom " + std::to_string(connectTimeoutSeconds) + " s";
+                lastError = "the server did not respond within " + std::to_string(connectTimeoutSeconds) + " s";
             } else if (ready < 0) {
                 lastError = std::strerror(errno);
             } else {
@@ -90,7 +90,7 @@ void Connection::connect(const std::string& host, int port, int timeoutSeconds, 
     freeaddrinfo(result);
 
     if (fd_ < 0) {
-        throw NetError("Kunde inte ansluta till " + host + ":" + portStr + ": " + lastError);
+        throw NetError("Could not connect to " + host + ":" + portStr + ": " + lastError);
     }
 }
 
@@ -103,7 +103,7 @@ void Connection::setTimeout(int seconds) {
 }
 
 void Connection::startTls(const std::string& host, bool verify) {
-    if (fd_ < 0) throw NetError("Ingen anslutning");
+    if (fd_ < 0) throw NetError("No connection");
 
     ctx_ = SSL_CTX_new(TLS_client_method());
     if (!ctx_) throw NetError("SSL_CTX_new: " + opensslError());
@@ -124,16 +124,16 @@ void Connection::startTls(const std::string& host, bool verify) {
         std::string err = opensslError();
         long verifyResult = SSL_get_verify_result(ssl_);
         if (verifyResult != X509_V_OK) {
-            err = std::string("certifikatet kunde inte verifieras (") +
+            err = std::string("the certificate could not be verified (") +
                   X509_verify_cert_error_string(verifyResult) + ")";
         }
         close();
-        throw NetError("TLS-handskakning mot " + host + " misslyckades: " + err);
+        throw NetError("TLS handshake with " + host + " failed: " + err);
     }
 }
 
 void Connection::fill() {
-    if (fd_ < 0) throw NetError("Anslutningen är stängd");
+    if (fd_ < 0) throw NetError("The connection is closed");
 
     // Komprimera bufferten när allt läst har konsumerats.
     if (pos_ > 0 && pos_ == buf_.size()) {
@@ -151,14 +151,14 @@ void Connection::fill() {
         if (n <= 0) {
             int err = SSL_get_error(ssl_, n);
             close();
-            if (err == SSL_ERROR_ZERO_RETURN) throw NetError("Servern stängde anslutningen");
-            throw NetError("Läsfel (TLS)");
+            if (err == SSL_ERROR_ZERO_RETURN) throw NetError("The server closed the connection");
+            throw NetError("Read error (TLS)");
         }
     } else {
         n = static_cast<int>(::recv(fd_, chunk, sizeof(chunk), 0));
         if (n <= 0) {
-            std::string reason = n == 0 ? "Servern stängde anslutningen"
-                                        : std::string("Läsfel: ") + std::strerror(errno);
+            std::string reason = n == 0 ? "The server closed the connection"
+                                        : std::string("Read error: ") + std::strerror(errno);
             close();
             throw NetError(reason);
         }
@@ -177,7 +177,7 @@ std::string Connection::readLine() {
         }
         if (buf_.size() - pos_ > kMaxLineLength) {
             close();
-            throw NetError("För lång rad från servern");
+            throw NetError("Line from the server is too long");
         }
         std::size_t consumedBefore = pos_;
         std::size_t sizeBefore = buf_.size();
@@ -195,7 +195,7 @@ std::string Connection::readBytes(std::size_t n) {
 }
 
 void Connection::write(const std::string& data) {
-    if (fd_ < 0) throw NetError("Anslutningen är stängd");
+    if (fd_ < 0) throw NetError("The connection is closed");
     std::size_t sent = 0;
     while (sent < data.size()) {
         int n;
@@ -207,7 +207,7 @@ void Connection::write(const std::string& data) {
         }
         if (n <= 0) {
             close();
-            throw NetError("Skrivfel mot servern");
+            throw NetError("Write error to the server");
         }
         sent += static_cast<std::size_t>(n);
     }

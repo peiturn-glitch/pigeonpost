@@ -413,7 +413,7 @@ Database::Database(const Config& config, bool migrateSchema) : key_(config.encry
     // Databasen kan starta långsammare än appen, till exempel första gången i Docker.
     for (int attempt = 1;; ++attempt) {
         db_ = mysql_init(nullptr);
-        if (!db_) throw std::runtime_error("Kunde inte initiera MariaDB-klienten");
+        if (!db_) throw std::runtime_error("Could not initialize the MariaDB client");
         my_bool reconnect = 1;
         unsigned int timeout = 10;
         mysql_options(db_, MYSQL_OPT_RECONNECT, &reconnect);
@@ -427,9 +427,9 @@ Database::Database(const Config& config, bool migrateSchema) : key_(config.encry
         mysql_close(db_);
         db_ = nullptr;
         if (attempt >= kConnectAttempts) {
-            throw std::runtime_error("Kunde inte ansluta till MariaDB på " + where + ": " + err);
+            throw std::runtime_error("Could not connect to MariaDB at " + where + ": " + err);
         }
-        std::cerr << "[db] Väntar på MariaDB på " << where << ": " << err << std::endl;
+        std::cerr << "[db] Waiting for MariaDB at " << where << ": " << err << std::endl;
         std::this_thread::sleep_for(kConnectRetryDelay);
     }
     if (!migrateSchema) return;
@@ -441,7 +441,7 @@ Database::Database(const Config& config, bool migrateSchema) : key_(config.encry
         mysql_close(db_);
         throw;
     }
-    std::cout << "[db] Ansluten till MariaDB på " << where << "/" << config.dbName << std::endl;
+    std::cout << "[db] Connected to MariaDB at " << where << "/" << config.dbName << std::endl;
 }
 
 Database::~Database() {
@@ -455,7 +455,7 @@ void Database::exec(const std::string& sql) {
         mysql_real_query(db_, sql.data(), sql.size()) == 0) {
         return;
     }
-    throw std::runtime_error("SQL-fel: " + std::string(mysql_error(db_)));
+    throw std::runtime_error("SQL error: " + std::string(mysql_error(db_)));
 }
 
 void Database::migrate() {
@@ -556,7 +556,7 @@ long long Database::createUser(const std::string& username, const std::string& p
     Lock lock(mutex_);
     Stmt s(db_, "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)");
     s.bind(1, username).bind(2, passwordHash).bind(3, isAdmin);
-    if (!s.run()) throw BadRequest("Användarnamnet är redan upptaget");
+    if (!s.run()) throw BadRequest("That username is already taken");
     return s.insertId();
 }
 
@@ -644,7 +644,7 @@ void Database::upsertDevice(const Device& d) {
                 "notify = IF(VALUES(notify) = '', notify, VALUES(notify)), last_seen_at = UNIX_TIMESTAMP()");
     s.bind(1, d.userId).bind(2, tokenHash(d.token)).bind(3, d.token).bind(4, d.name).bind(5, d.platform)
         .bind(6, d.appVersion).bind(7, d.notify);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara enheten");
+    if (!s.run()) throw std::runtime_error("Could not save the device");
 }
 
 bool Database::deleteDevice(long long userId, const std::string& token) {
@@ -752,7 +752,7 @@ long long Database::createAccount(const Account& a) {
         .bind(10, a.username).bind(11, a.smtpUsername).bind(12, encryptOptional(a.password))
         .bind(13, a.tlsVerify).bind(14, a.signature).bind(15, a.authType).bind(16, encryptOptional(a.oauthRefreshToken))
         .bind(17, a.signatureHtml);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara kontot");
+    if (!s.run()) throw std::runtime_error("Could not save the account");
     return s.insertId();
 }
 
@@ -767,7 +767,7 @@ void Database::updateAccount(const Account& a) {
         .bind(10, a.smtpUsername).bind(11, encryptOptional(a.password)).bind(12, a.tlsVerify)
         .bind(13, a.signature).bind(14, a.authType).bind(15, encryptOptional(a.oauthRefreshToken))
         .bind(16, a.signatureHtml).bind(17, a.id);
-    if (!s.run()) throw std::runtime_error("Kunde inte uppdatera kontot");
+    if (!s.run()) throw std::runtime_error("Could not update the account");
 }
 
 void Database::deleteAccount(long long id) {
@@ -824,7 +824,7 @@ long long Database::createIdentity(const Identity& i) {
         .bind(6, i.useAccountSmtp).bind(7, i.smtpHost).bind(8, i.smtpPort).bind(9, i.smtpSecurity)
         .bind(10, i.smtpUsername).bind(11, encryptOptional(i.smtpPassword))
         .bind(12, i.tlsVerify).bind(13, i.signatureHtml);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara avsändaren");
+    if (!s.run()) throw std::runtime_error("Could not save the sender");
     return s.insertId();
 }
 
@@ -838,7 +838,7 @@ void Database::updateIdentity(const Identity& i) {
         .bind(6, i.smtpHost).bind(7, i.smtpPort).bind(8, i.smtpSecurity).bind(9, i.smtpUsername)
         .bind(10, encryptOptional(i.smtpPassword))
         .bind(11, i.tlsVerify).bind(12, i.signatureHtml).bind(13, i.id);
-    if (!s.run()) throw std::runtime_error("Kunde inte uppdatera avsändaren");
+    if (!s.run()) throw std::runtime_error("Could not update the sender");
 }
 
 void Database::deleteIdentity(long long id) {
@@ -880,7 +880,7 @@ long long Database::createDriveConnection(const DriveConnection& c) {
     Lock lock(mutex_);
     Stmt s(db_, "INSERT INTO drive_connections (user_id, email, refresh_token_enc, folder_id) VALUES (?,?,?,?)");
     s.bind(1, c.userId).bind(2, c.email).bind(3, encryptOptional(c.refreshToken)).bind(4, c.folderId);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara Google Drive-kopplingen");
+    if (!s.run()) throw std::runtime_error("Could not save the Google Drive connection");
     return s.insertId();
 }
 
@@ -955,7 +955,7 @@ long long Database::createBackupJob(const BackupJob& j) {
     Stmt s(db_, "INSERT INTO backup_jobs (user_id, name, config, schedule, enabled, next_run_at) VALUES (?,?,?,?,?,?)");
     s.bind(1, j.userId).bind(2, j.name).bind(3, j.config).bind(4, j.schedule).bind(5, j.enabled)
         .bind(6, static_cast<long long>(j.nextRunAt));
-    if (!s.run()) throw std::runtime_error("Kunde inte spara backupen");
+    if (!s.run()) throw std::runtime_error("Could not save the backup");
     return s.insertId();
 }
 
@@ -964,7 +964,7 @@ void Database::updateBackupJob(const BackupJob& j) {
     Stmt s(db_, "UPDATE backup_jobs SET name=?, config=?, schedule=?, enabled=?, next_run_at=? WHERE id=?");
     s.bind(1, j.name).bind(2, j.config).bind(3, j.schedule).bind(4, j.enabled)
         .bind(5, static_cast<long long>(j.nextRunAt)).bind(6, j.id);
-    if (!s.run()) throw std::runtime_error("Kunde inte uppdatera backupen");
+    if (!s.run()) throw std::runtime_error("Could not update the backup");
 }
 
 void Database::deleteBackupJob(long long id) {
@@ -997,7 +997,7 @@ long long Database::createBackupRun(const BackupRun& r) {
     if (r.jobId) s.bind(2, r.jobId);  // Obunden parameter blir NULL.
     s.bind(3, r.status).bind(4, r.config).bind(5, r.progress).bind(6, r.message)
         .bind(7, static_cast<long long>(r.finishedAt));
-    if (!s.run()) throw std::runtime_error("Kunde inte skapa backupkörningen");
+    if (!s.run()) throw std::runtime_error("Could not create the backup run");
     return s.insertId();
 }
 
@@ -1066,7 +1066,7 @@ void Database::finishBackupRun(const BackupRun& r) {
 
 bool Database::cancelQueuedBackupRun(long long id, std::int64_t now) {
     Lock lock(mutex_);
-    Stmt s(db_, "UPDATE backup_runs SET status = 'cancelled', message = 'Avbruten innan den startade', finished_at = ? "
+    Stmt s(db_, "UPDATE backup_runs SET status = 'cancelled', message = 'Cancelled before it started', finished_at = ? "
                 "WHERE id = ? AND status = 'queued'");
     s.bind(1, static_cast<long long>(now)).bind(2, id).run();
     return s.affectedRows() > 0;
@@ -1079,7 +1079,7 @@ void Database::deleteBackupRun(long long id) {
 
 void Database::failInterruptedBackupRuns(std::int64_t now) {
     Lock lock(mutex_);
-    Stmt(db_, "UPDATE backup_runs SET status = 'failed', message = 'Avbröts eftersom servern startades om', "
+    Stmt(db_, "UPDATE backup_runs SET status = 'failed', message = 'Aborted because the server was restarted', "
               "finished_at = ? WHERE status = 'running'")
         .bind(1, static_cast<long long>(now)).run();
 }
@@ -1136,12 +1136,12 @@ void Database::saveAiSettings(const AiSettings& a) {
                 "ON DUPLICATE KEY UPDATE base_url = VALUES(base_url), model = VALUES(model), "
                 "api_key_enc = VALUES(api_key_enc), instructions = VALUES(instructions)");
     s.bind(1, a.userId).bind(2, a.baseUrl).bind(3, a.model).bind(4, encryptOptional(a.apiKey)).bind(5, a.instructions);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara AI-inställningarna");
+    if (!s.run()) throw std::runtime_error("Could not save the AI settings");
     Stmt k(db_, "INSERT INTO ai_provider_keys (user_id, url_hash, base_url, model, api_key_enc) VALUES (?,?,?,?,?) "
                 "ON DUPLICATE KEY UPDATE model = VALUES(model), api_key_enc = VALUES(api_key_enc)");
     k.bind(1, a.userId).bind(2, crypto::toHex(crypto::sha256(a.baseUrl))).bind(3, a.baseUrl).bind(4, a.model)
         .bind(5, encryptOptional(a.apiKey));
-    if (!k.run()) throw std::runtime_error("Kunde inte spara AI-inställningarna");
+    if (!k.run()) throw std::runtime_error("Could not save the AI settings");
 }
 
 void Database::deleteAiSettings(long long userId) {
@@ -1208,7 +1208,7 @@ void Database::saveAiSortCursors(long long userId, long long accountId, const st
     Stmt s(db_, "INSERT INTO ai_sort_prefs (account_id, user_id, excluded, cursors) VALUES (?,?,'',?) "
                 "ON DUPLICATE KEY UPDATE cursors = VALUES(cursors)");
     s.bind(1, accountId).bind(2, userId).bind(3, cursors);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara hur långt sorteringen har kommit");
+    if (!s.run()) throw std::runtime_error("Could not save the sorting progress");
 }
 
 void Database::saveAiSortExcluded(long long userId, long long accountId, const std::string& excluded) {
@@ -1216,7 +1216,7 @@ void Database::saveAiSortExcluded(long long userId, long long accountId, const s
     Stmt s(db_, "INSERT INTO ai_sort_prefs (account_id, user_id, excluded) VALUES (?,?,?) "
                 "ON DUPLICATE KEY UPDATE excluded = VALUES(excluded)");
     s.bind(1, accountId).bind(2, userId).bind(3, excluded);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara valet av mappar");
+    if (!s.run()) throw std::runtime_error("Could not save the folder selection");
 }
 
 AiAutoRule Database::rowToAiAutoRule(Stmt& s) {
@@ -1257,7 +1257,7 @@ void Database::saveAiAutoRule(const AiAutoRule& r, bool resetState) {
                 "ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), targets = VALUES(targets), "
                 "interval_minutes = VALUES(interval_minutes), next_check_at = 0");
     s.bind(1, r.accountId).bind(2, r.userId).bind(3, r.enabled).bind(4, r.targets).bind(5, r.intervalMinutes);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara den automatiska sorteringen");
+    if (!s.run()) throw std::runtime_error("Could not save the automatic sorting");
     if (resetState) {
         Stmt(db_, "UPDATE ai_auto_rules SET uid_validity = 0, last_uid = 0, last_error = '' WHERE account_id = ?")
             .bind(1, r.accountId).run();
@@ -1298,7 +1298,7 @@ void Database::addRemoteSender(long long userId, const std::string& sender) {
     Lock lock(mutex_);
     Stmt s(db_, "INSERT IGNORE INTO remote_senders (user_id, sender_hash, sender, created_at) VALUES (?,?,?,UNIX_TIMESTAMP())");
     s.bind(1, userId).bind(2, crypto::toHex(crypto::sha256(sender))).bind(3, sender);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara avsändaren");
+    if (!s.run()) throw std::runtime_error("Could not save the sender");
 }
 
 void Database::deleteRemoteSender(long long userId, const std::string& sender) {
@@ -1370,7 +1370,7 @@ bool Database::addAiSortExample(const AiSortExample& e) {
     s.bind(1, e.userId).bind(2, e.accountId).bind(3, senderHash(e.senderEmail)).bind(4, e.senderEmail)
         .bind(5, e.senderName).bind(6, e.subject).bind(7, e.sourceFolder).bind(8, e.suggested).bind(9, e.chosen)
         .bind(10, e.suggested != e.chosen).bind(11, static_cast<long long>(e.createdAt));
-    if (!s.run()) throw std::runtime_error("Kunde inte spara rättningen");
+    if (!s.run()) throw std::runtime_error("Could not save the correction");
     return true;
 }
 
@@ -1446,7 +1446,7 @@ void Database::saveAiSenderRule(const AiSenderRule& r) {
                 "created_at = VALUES(created_at)");
     s.bind(1, r.userId).bind(2, r.accountId).bind(3, senderHash(r.sender)).bind(4, r.sender).bind(5, r.target)
         .bind(6, r.dismissed).bind(7, static_cast<long long>(r.createdAt));
-    if (!s.run()) throw std::runtime_error("Kunde inte spara regeln");
+    if (!s.run()) throw std::runtime_error("Could not save the rule");
 }
 
 std::vector<AiSenderRule> Database::listAiSenderRules(long long userId) {
@@ -1525,7 +1525,7 @@ long long Database::addAiSortJob(const AiSortJob& j) {
     s.bind(1, j.userId).bind(2, j.accountId).bind(3, j.folder).bind(4, j.targets).bind(5, j.unreadOnly).bind(6, j.state)
         .bind(7, static_cast<long long>(j.beforeUid)).bind(8, static_cast<long long>(j.total))
         .bind(9, static_cast<long long>(j.createdAt));
-    if (!s.run()) throw std::runtime_error("Kunde inte starta sorteringen");
+    if (!s.run()) throw std::runtime_error("Could not start the sorting");
     return s.insertId();
 }
 
@@ -1640,7 +1640,7 @@ long long Database::addAiSortLog(const AiSortLogEntry& e) {
     s.bind(1, e.userId).bind(2, e.accountId).bind(3, crypto::toHex(crypto::sha256(e.messageId))).bind(4, e.messageId)
         .bind(5, e.subject).bind(6, e.sender).bind(7, e.sourceFolder).bind(8, e.targetFolder).bind(9, e.reason)
         .bind(10, static_cast<long long>(e.movedAt)).bind(11, e.jobId);
-    if (!s.run()) throw std::runtime_error("Kunde inte spara sorteringshistoriken");
+    if (!s.run()) throw std::runtime_error("Could not save the sorting history");
     return s.insertId();
 }
 

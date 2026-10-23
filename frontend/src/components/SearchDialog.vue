@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '../api'
+import { locale, t } from '../i18n'
 import { useMailStore } from '../store'
 import { SORT_KEYS, displayName, formatListDate, specialFolderNames } from '../utils'
 import Icon from './Icon.vue'
@@ -25,18 +26,25 @@ function setSort(key, desc) {
 }
 
 const sortLabel = computed(() => {
-  const name = SORT_KEYS.find((s) => s.key === sort.key)?.label.toLowerCase() || sort.key
-  if (sort.key === 'date') return sort.desc ? 'nyast först' : 'äldst först'
-  if (sort.key === 'size') return sort.desc ? 'störst först' : 'minst först'
-  return `${name} ${sort.desc ? 'Ö–A' : 'A–Ö'}`
+  const found = SORT_KEYS.find((s) => s.key === sort.key)
+  const name = found ? t(found.label).toLocaleLowerCase(locale()) : sort.key
+  if (sort.key === 'date') return sort.desc ? t('newest first') : t('oldest first')
+  if (sort.key === 'size') return sort.desc ? t('largest first') : t('smallest first')
+  return `${name} ${sort.desc ? t('Z–A') : t('A–Z')}`
 })
+
+const resultsText = computed(() =>
+  search.total === 1
+    ? t('1 result, {sort}. Click a result to open it in its folder.', { sort: sortLabel.value })
+    : t('{n} results, {sort}. Click a result to open it in its folder.', { n: search.total, sort: sortLabel.value }),
+)
 
 const accountFolders = computed(() =>
   form.value.accountId ? (store.folders[form.value.accountId] || []).filter((f) => f.selectable && !['all', 'flagged', 'important'].includes(f.specialUse)) : [],
 )
 
 function folderName(f) {
-  return specialFolderNames[f.specialUse] || f.path
+  return f.specialUse && specialFolderNames[f.specialUse] ? t(specialFolderNames[f.specialUse]) : f.path
 }
 
 function hitFolder(hit) {
@@ -52,7 +60,7 @@ function accountName(id) {
 function correspondent(hit) {
   const use = store.folderInfo(hit.accountId, hit.folder)?.specialUse
   const list = ['sent', 'drafts'].includes(use) ? hit.to : hit.from
-  return list.map(displayName).join(', ') || '(okänd)'
+  return list.map(displayName).join(', ') || t('(unknown)')
 }
 
 watch(
@@ -177,96 +185,96 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop">
     <div class="modal search-dialog">
       <div class="modal-header">
-        <h2>Sök i alla mappar</h2>
-        <button class="btn ghost" title="Stäng (Esc)" @click="close"><Icon name="close" /></button>
+        <h2>{{ t('Search all folders') }}</h2>
+        <button class="btn ghost" :title="t('Close (Esc)')" @click="close"><Icon name="close" /></button>
       </div>
 
       <div class="filters">
         <form v-if="aiConfigured" class="ask" @submit.prevent="interpret">
           <label class="grow">
-            <span>Beskriv vad du letar efter</span>
+            <span>{{ t('Describe what you are looking for') }}</span>
             <input
               ref="questionInput"
               v-model="search.question"
               class="input"
               maxlength="500"
-              placeholder="Till exempel: fakturan från elbolaget i våras, eller olästa mejl med bilaga från Anna förra veckan"
+              :placeholder="t('For example: the invoice from the power company last spring, or unread mail with attachments from Anna last week')"
             />
           </label>
           <button class="btn primary" type="submit" :disabled="interpreting || !search.question.trim()">
-            <Icon name="sparkles" /> {{ interpreting ? 'Tolkar…' : 'Sök med AI' }}
+            <Icon name="sparkles" /> {{ interpreting ? t('Interpreting…') : t('Search with AI') }}
           </button>
         </form>
         <p v-else-if="aiConfigured === false" class="muted note">
-          Med en AI-tjänst kan du beskriva vad du letar efter med egna ord.
-          <button class="link" @click="openAiSettings">Ställ in AI-tjänst</button>
+          {{ t('With an AI service you can describe what you are looking for in your own words.') }}
+          <button class="link" @click="openAiSettings">{{ t('Set up AI service') }}</button>
         </p>
-        <p v-if="search.explanation" class="explanation"><Icon name="sparkles" :size="12" /> {{ search.explanation }} Filtren nedan går att ändra.</p>
+        <p v-if="search.explanation" class="explanation"><Icon name="sparkles" :size="12" /> {{ search.explanation }} {{ t('You can adjust the filters below.') }}</p>
 
         <form class="fields" @submit.prevent="runSearch()">
           <label class="wide">
-            <span>Sökord <em>alla ska finnas med; skriv | mellan alternativ, t.ex. kvitto|faktura</em></span>
+            <span>{{ t('Keywords') }} <em>{{ t('all must match; separate alternatives with |, e.g. receipt|invoice') }}</em></span>
             <input v-model="form.q" class="input" maxlength="1000" spellcheck="false" />
           </label>
           <label>
-            <span>Från</span>
-            <input v-model="form.from" class="input" maxlength="200" placeholder="Namn eller adress" spellcheck="false" />
+            <span>{{ t('From') }}</span>
+            <input v-model="form.from" class="input" maxlength="200" :placeholder="t('Name or address')" spellcheck="false" />
           </label>
           <label>
-            <span>Till</span>
-            <input v-model="form.to" class="input" maxlength="200" placeholder="Namn eller adress" spellcheck="false" />
+            <span>{{ t('To') }}</span>
+            <input v-model="form.to" class="input" maxlength="200" :placeholder="t('Name or address')" spellcheck="false" />
           </label>
           <label>
-            <span>Från datum</span>
+            <span>{{ t('From date') }}</span>
             <input v-model="form.after" class="input" type="date" />
           </label>
           <label>
-            <span>Till datum</span>
+            <span>{{ t('To date') }}</span>
             <input v-model="form.before" class="input" type="date" />
           </label>
           <label>
-            <span>Konto</span>
+            <span>{{ t('Account') }}</span>
             <select v-model="form.accountId" class="input">
-              <option :value="null">Alla konton</option>
+              <option :value="null">{{ t('All accounts') }}</option>
               <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }} &lt;{{ a.email }}&gt;</option>
             </select>
           </label>
           <label>
-            <span>Mapp</span>
-            <select v-model="form.folder" class="input" :disabled="!form.accountId" :title="form.accountId ? '' : 'Välj ett konto för att söka i en viss mapp'">
-              <option value="">Alla mappar</option>
+            <span>{{ t('Folder') }}</span>
+            <select v-model="form.folder" class="input" :disabled="!form.accountId" :title="form.accountId ? '' : t('Select an account to search a specific folder')">
+              <option value="">{{ t('All folders') }}</option>
               <option v-for="f in accountFolders" :key="f.path" :value="f.path">{{ folderName(f) }}</option>
             </select>
           </label>
           <div class="checks wide">
-            <label class="inline"><input v-model="form.unread" type="checkbox" /> Bara olästa</label>
-            <label class="inline"><input v-model="form.flagged" type="checkbox" /> Bara stjärnmärkta</label>
-            <label class="inline"><input v-model="form.attachments" type="checkbox" /> Med bilaga</label>
-            <label v-if="!form.folder" class="inline"><input v-model="form.includeTrash" type="checkbox" /> Ta med papperskorg och skräppost</label>
+            <label class="inline"><input v-model="form.unread" type="checkbox" /> {{ t('Unread only') }}</label>
+            <label class="inline"><input v-model="form.flagged" type="checkbox" /> {{ t('Starred only') }}</label>
+            <label class="inline"><input v-model="form.attachments" type="checkbox" /> {{ t('With attachments') }}</label>
+            <label v-if="!form.folder" class="inline"><input v-model="form.includeTrash" type="checkbox" /> {{ t('Include Trash and Junk') }}</label>
             <span class="spacer" />
-            <button class="btn" type="button" @click="clear">Rensa</button>
-            <button class="btn" :class="{ primary: !aiConfigured }" type="submit" :disabled="searching"><Icon name="search" /> Sök</button>
+            <button class="btn" type="button" @click="clear">{{ t('Clear') }}</button>
+            <button class="btn" :class="{ primary: !aiConfigured }" type="submit" :disabled="searching"><Icon name="search" /> {{ t('Search') }}</button>
           </div>
         </form>
         <p v-if="error" class="error-text">{{ error }}</p>
       </div>
 
       <div class="results">
-        <p v-if="searching && !search.results.length" class="notice muted">Söker…</p>
+        <p v-if="searching && !search.results.length" class="notice muted">{{ t('Searching…') }}</p>
         <p v-else-if="search.searched && !search.results.length" class="notice muted">
-          Inga träffar. Prova färre sökord, fler alternativ med | eller ett större datumintervall.
+          {{ t('No results. Try fewer keywords, more alternatives with | or a wider date range.') }}
         </p>
         <p v-else-if="!search.searched" class="notice muted">
-          Sökningen går i ämne, avsändare, mottagare och meddelandenas text, i alla konton och mappar om du inte väljer något annat.
+          {{ t('The search covers subject, sender, recipients and message text, in all accounts and folders unless you choose otherwise.') }}
         </p>
         <template v-else>
           <p class="count muted">
-            <span>{{ search.total }} träff(ar), {{ sortLabel }}. Klicka på en träff för att öppna den i sin mapp.</span>
+            <span>{{ resultsText }}</span>
             <span class="sort-control">
-              <select :value="sort.key" aria-label="Sortera efter" :disabled="searching" @change="setSort($event.target.value, $event.target.value === sort.key ? sort.desc : ['date', 'size'].includes($event.target.value))">
-                <option v-for="s in SORT_KEYS" :key="s.key" :value="s.key">{{ s.label }}</option>
+              <select :value="sort.key" :aria-label="t('Sort by')" :disabled="searching" @change="setSort($event.target.value, $event.target.value === sort.key ? sort.desc : ['date', 'size'].includes($event.target.value))">
+                <option v-for="s in SORT_KEYS" :key="s.key" :value="s.key">{{ t(s.label) }}</option>
               </select>
-              <button class="btn ghost" :disabled="searching" :title="sort.desc ? 'Fallande ordning. Klicka för stigande.' : 'Stigande ordning. Klicka för fallande.'" @click="setSort(sort.key, !sort.desc)">
+              <button class="btn ghost" :disabled="searching" :title="sort.desc ? t('Descending. Click for ascending.') : t('Ascending. Click for descending.')" @click="setSort(sort.key, !sort.desc)">
                 <Icon :name="sort.desc ? 'arrowDown' : 'arrowUp'" :size="12" />
               </button>
             </span>
@@ -274,10 +282,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <table>
             <thead>
               <tr>
-                <th>Ämne</th>
-                <th>Korrespondent</th>
-                <th>Mapp</th>
-                <th class="date">Datum</th>
+                <th>{{ t('Subject') }}</th>
+                <th>{{ t('Correspondent') }}</th>
+                <th>{{ t('Folder') }}</th>
+                <th class="date">{{ t('Date') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -285,7 +293,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                 <td :title="hit.subject">
                   <Icon v-if="hit.flagged" name="star" :size="12" />
                   <Icon v-if="hit.hasAttachments" name="paperclip" :size="12" />
-                  {{ hit.subject || '(inget ämne)' }}
+                  {{ hit.subject || t('(no subject)') }}
                 </td>
                 <td :title="correspondent(hit)">{{ correspondent(hit) }}</td>
                 <td :title="`${hit.folder} · ${accountName(hit.accountId)}`">
@@ -296,7 +304,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             </tbody>
           </table>
           <p v-if="search.results.length < search.total" class="more">
-            <button class="btn" :disabled="searching" @click="runSearch({ append: true })">{{ searching ? 'Hämtar…' : 'Visa fler' }}</button>
+            <button class="btn" :disabled="searching" @click="runSearch({ append: true })">{{ searching ? t('Fetching…') : t('Show more') }}</button>
           </p>
         </template>
       </div>

@@ -1,25 +1,41 @@
-const timeFmt = new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit' })
-const dayFmt = new Intl.DateTimeFormat('sv-SE', { day: 'numeric', month: 'short' })
-const fullFmt = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' })
-const longFmt = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'full', timeStyle: 'short' })
+import { locale, t } from './i18n'
+
+const DATE_FORMATS = {
+  time: { hour: '2-digit', minute: '2-digit' },
+  day: { day: 'numeric', month: 'short' },
+  full: { dateStyle: 'short', timeStyle: 'short' },
+  long: { dateStyle: 'full', timeStyle: 'short' },
+}
+const formatters = new Map()
+
+// Datumformat för det språk som visas just nu. Formaterarna skapas en gång per språk.
+function dateFormat(name) {
+  const key = `${locale()}:${name}`
+  let fmt = formatters.get(key)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(locale(), DATE_FORMATS[name])
+    formatters.set(key, fmt)
+  }
+  return fmt
+}
 
 export function formatListDate(epochSeconds) {
   if (!epochSeconds) return ''
   const d = new Date(epochSeconds * 1000)
   const now = new Date()
-  if (d.toDateString() === now.toDateString()) return timeFmt.format(d)
-  if (d.getFullYear() === now.getFullYear()) return `${dayFmt.format(d)} ${timeFmt.format(d)}`
-  return fullFmt.format(d)
+  if (d.toDateString() === now.toDateString()) return dateFormat('time').format(d)
+  if (d.getFullYear() === now.getFullYear()) return `${dateFormat('day').format(d)} ${dateFormat('time').format(d)}`
+  return dateFormat('full').format(d)
 }
 
 export function formatFullDate(epochSeconds) {
-  return epochSeconds ? longFmt.format(new Date(epochSeconds * 1000)) : ''
+  return epochSeconds ? dateFormat('long').format(new Date(epochSeconds * 1000)) : ''
 }
 
 export function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} kB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  if (bytes < 1024) return t('{n} B', { n: bytes })
+  if (bytes < 1024 * 1024) return t('{n} kB', { n: (bytes / 1024).toFixed(0) })
+  return t('{n} MB', { n: (bytes / 1024 / 1024).toFixed(1) })
 }
 
 export function displayName(address) {
@@ -28,12 +44,13 @@ export function displayName(address) {
 }
 
 // Sorteringar som listorna och sökningen kan begära av servern. Datum är standard, nyast först.
+// label är engelska och översätts med t(label) där den visas.
 export const SORT_KEYS = [
-  { key: 'date', label: 'Datum' },
-  { key: 'from', label: 'Avsändare' },
-  { key: 'to', label: 'Mottagare' },
-  { key: 'subject', label: 'Ämne' },
-  { key: 'size', label: 'Storlek' },
+  { key: 'date', label: 'Date' },
+  { key: 'from', label: 'Sender' },
+  { key: 'to', label: 'Recipient' },
+  { key: 'subject', label: 'Subject' },
+  { key: 'size', label: 'Size' },
 ]
 export const DEFAULT_SORT = { key: 'date', desc: true }
 
@@ -43,16 +60,16 @@ export function isSortKey(key) {
 
 // Ämnet utan svars- och vidarebefordringsprefix, som i serverns sortering.
 function sortableSubject(subject) {
-  return (subject || '').replace(/^(\s*(re|sv|fwd|fw|vb|aw|wg|tr)\s*(\[\d+\])?\s*:)+\s*/i, '').toLocaleLowerCase('sv')
+  return (subject || '').replace(/^(\s*(re|sv|fwd|fw|vb|aw|wg|tr)\s*(\[\d+\])?\s*:)+\s*/i, '').toLocaleLowerCase(locale())
 }
 
 // Samma ordning som servern ger, för listor som sätts ihop i webbläsaren (t.ex. när vyn över olästa uppdateras).
 export function messageComparator({ key, desc }) {
-  const collator = new Intl.Collator('sv')
+  const collator = new Intl.Collator(locale())
   const value = (m) => {
     if (key === 'subject') return sortableSubject(m.subject)
-    if (key === 'from') return displayName(m.from?.[0]).toLocaleLowerCase('sv')
-    if (key === 'to') return displayName(m.to?.[0]).toLocaleLowerCase('sv')
+    if (key === 'from') return displayName(m.from?.[0]).toLocaleLowerCase(locale())
+    if (key === 'to') return displayName(m.to?.[0]).toLocaleLowerCase(locale())
     if (key === 'size') return m.size || 0
     return m.date || 0
   }
@@ -169,16 +186,17 @@ export function presetForEmail(email) {
   return { imapHost: `imap.${domain}`, smtpHost: `smtp.${domain}` }
 }
 
+// Visningsnamn för specialmappar, på engelska; översätts med t() där de visas (se folderLabel).
 export const specialFolderNames = {
-  inbox: 'Inkorg',
-  drafts: 'Utkast',
-  sent: 'Skickat',
-  archive: 'Arkiv',
-  junk: 'Skräppost',
-  trash: 'Papperskorg',
-  all: 'Alla meddelanden',
-  flagged: 'Stjärnmärkt',
-  important: 'Viktigt',
+  inbox: 'Inbox',
+  drafts: 'Drafts',
+  sent: 'Sent',
+  archive: 'Archive',
+  junk: 'Junk',
+  trash: 'Trash',
+  all: 'All messages',
+  flagged: 'Starred',
+  important: 'Important',
 }
 
 const specialOrder = ['inbox', 'drafts', 'sent', 'archive', 'junk', 'trash']
@@ -214,7 +232,7 @@ export function buildFolderTree(folders) {
       const ai = specialOrder.indexOf(a.specialUse)
       const bi = specialOrder.indexOf(b.specialUse)
       if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
-      return a.name.localeCompare(b.name, 'sv')
+      return a.name.localeCompare(b.name, locale())
     })
     nodes.forEach((n) => sortNodes(n.children))
   }
@@ -228,5 +246,6 @@ export function isInsideFolder(path, folder) {
 }
 
 export function folderLabel(folder) {
-  return specialFolderNames[folder.specialUse] || folder.name
+  const special = specialFolderNames[folder.specialUse]
+  return special ? t(special) : folder.name
 }

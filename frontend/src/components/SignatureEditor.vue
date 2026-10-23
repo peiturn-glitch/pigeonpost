@@ -1,5 +1,6 @@
 <script setup>
 import { nextTick, ref } from 'vue'
+import { t } from '../i18n'
 import { sanitizeHtml, textToHtml } from '../richtext'
 import RichEditor from './RichEditor.vue'
 
@@ -35,7 +36,7 @@ async function toggle(event) {
     return
   }
   const formatted = editor.value.element().querySelector('b, i, u, s, strong, em, font, span[style], h1, h2, h3, ul, ol, img, a, table, hr')
-  if (formatted && !window.confirm('Byta till ren text? Formatering och bilder i signaturen försvinner.')) {
+  if (formatted && !window.confirm(t('Switch to plain text? Formatting and images in the signature will be lost.'))) {
     event.target.checked = true
     return
   }
@@ -54,15 +55,15 @@ async function toggle(event) {
       :value="text"
       class="input"
       rows="3"
-      placeholder="Läggs till i nya meddelanden"
+      :placeholder="t('Added to new messages')"
       @input="emit('update:text', $event.target.value)"
     />
     <label class="toggle">
       <input type="checkbox" :checked="rich" @change="toggle" />
-      Formaterad signatur (typsnitt, färger, länkar, bilder och tabeller)
+      {{ t('Formatted signature (fonts, colors, links, images and tables)') }}
     </label>
     <p v-if="rich" class="muted hint">
-      Används i meddelanden med formatering. I meddelanden i ren text används signaturens text utan formatering.
+      {{ t('Used in formatted messages. Plain-text messages use the signature text without formatting.') }}
     </p>
   </div>
 </template>

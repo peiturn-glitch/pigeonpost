@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, backupDownloadUrl } from '../api'
+import { locale, t } from '../i18n'
 import { isGoogleMailAddress, isGoogleMailHost } from '../oauth'
 import { useMailStore } from '../store'
 import { formatFullDate, formatSize } from '../utils'
@@ -20,8 +21,9 @@ const showFolders = ref(false)
 const expandedRuns = ref(new Set())
 
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-const weekdays = ['måndag', 'tisdag', 'onsdag', 'torsdag', 'fredag', 'lördag', 'söndag']
-const statusLabels = { queued: 'I kö', running: 'Pågår', done: 'Klar', failed: 'Misslyckades', cancelled: 'Avbruten' }
+// Engelska nycklar; översätts med t() vid visning.
+const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const statusLabels = { queued: 'Queued', running: 'Running', done: 'Done', failed: 'Failed', cancelled: 'Cancelled' }
 
 function emptyForm() {
   return {
@@ -64,10 +66,10 @@ const driveLoginHint = computed(() => {
 })
 
 const defaultName = computed(() => {
-  const source = sourceAccount.value?.email || 'Konto'
+  const source = sourceAccount.value?.email || t('Account')
   if (form.type === 'imap') return `${source} → ${store.account(form.targetAccountId)?.email || 'IMAP'}`
   if (form.type === 'gdrive') return `${source} → Google Drive`
-  return `${source} → zip-fil`
+  return `${source} → ${t('zip file')}`
 })
 
 // Gmails "Alla mail" och "Stjärnmärkt" innehåller kopior av meddelanden i andra mappar.
@@ -143,8 +145,8 @@ async function load() {
     for (const run of data.runs) {
       const before = knownStatus.get(run.id)
       if ((before === 'queued' || before === 'running') && before !== run.status) {
-        if (run.status === 'done') store.notify(`Backupen är klar: ${run.message}`)
-        else if (run.status === 'failed') store.notify(`Backupen misslyckades: ${run.message}`, 'error')
+        if (run.status === 'done') store.notify(t('Backup finished: {message}', { message: run.message }))
+        else if (run.status === 'failed') store.notify(t('Backup failed: {message}', { message: run.message }), 'error')
       }
     }
     knownStatus = new Map(data.runs.map((r) => [r.id, r.status]))
@@ -194,7 +196,7 @@ async function startNow() {
   const result = await run(() => api.startBackup(buildConfig()))
   if (result) {
     tab.value = 'runs'
-    store.notify('Backupen har startat')
+    store.notify(t('Backup started'))
   }
 }
 
@@ -213,7 +215,7 @@ async function saveJob({ runAfterSave = false } = {}) {
     return job
   })
   if (saved) {
-    store.notify(editingJobId.value ? 'Backupen sparades' : 'Backupen skapades')
+    store.notify(editingJobId.value ? t('Backup saved') : t('Backup created'))
     resetForm()
     tab.value = runAfterSave ? 'runs' : 'jobs'
   }
@@ -253,7 +255,7 @@ async function runJob(job) {
   const result = await run(() => api.runBackupJob(job.id))
   if (result) {
     tab.value = 'runs'
-    store.notify(`${job.name} har startat`)
+    store.notify(t('{name} started', { name: job.name }))
   }
 }
 
@@ -264,7 +266,7 @@ async function toggleJob(job) {
 }
 
 async function deleteJob(job) {
-  if (!window.confirm(`Ta bort backupen "${job.name}"? Tidigare körningar finns kvar i historiken.`)) return
+  if (!window.confirm(t('Delete the backup "{name}"? Earlier runs remain in the history.', { name: job.name }))) return
   await run(() => api.deleteBackupJob(job.id))
   if (editingJobId.value === job.id) resetForm()
 }
@@ -274,7 +276,7 @@ async function cancelRun(r) {
 }
 
 async function deleteRun(r) {
-  if (r.hasFile && !window.confirm('Ta bort körningen och dess zip-fil?')) return
+  if (r.hasFile && !window.confirm(t('Delete the run and its zip file?'))) return
   await run(() => api.deleteBackupRun(r.id))
 }
 
@@ -282,12 +284,12 @@ async function onDriveSignedIn(result) {
   const connection = await run(() => api.addDriveConnection(result.state))
   if (connection) {
     form.connectionId = connection.id
-    store.notify(`Google Drive (${connection.email}) är anslutet`)
+    store.notify(t('Google Drive ({email}) is connected', { email: connection.email }))
   }
 }
 
 async function removeConnection(connection) {
-  if (!window.confirm(`Koppla bort Google Drive för ${connection.email}? Backuper som redan finns i Drive ligger kvar.`)) return
+  if (!window.confirm(t('Disconnect Google Drive for {email}? Backups already in Drive are kept.', { email: connection.email }))) return
   await run(() => api.deleteDriveConnection(connection.id))
 }
 
@@ -311,48 +313,56 @@ function onKey(event) {
 function accountEmail(id, fallback) {
   const account = store.account(id)
   if (account) return account.email
-  return `${fallback || `konto ${id}`} (borttaget)`
+  return t('{account} (deleted)', { account: fallback || t('account {id}', { id }) })
 }
 
 function destinationText(config) {
   const d = config?.destination || {}
-  if (d.type === 'zip') return 'zip-fil för nedladdning'
-  if (d.type === 'imap') return `${accountEmail(d.accountId, d.email)}${d.folder ? `, mappen ${d.folder}` : ''}`
-  if (d.type === 'gdrive') return `Google Drive (${d.email})${d.keep ? `, behåller ${d.keep}` : ''}`
-  return 'okänt mål'
+  if (d.type === 'zip') return t('zip file for download')
+  if (d.type === 'imap') return `${accountEmail(d.accountId, d.email)}${d.folder ? t(', folder {folder}', { folder: d.folder }) : ''}`
+  if (d.type === 'gdrive') return `Google Drive (${d.email})${d.keep ? t(', keeps {n}', { n: d.keep }) : ''}`
+  return t('unknown destination')
 }
 
 function destinationIcon(config) {
   return { zip: 'zip', imap: 'mail', gdrive: 'cloud' }[config?.destination?.type] || 'backup'
 }
 
+// Ordningstal för dag i månaden: 1:a, 2:a, 3:e … på svenska, 1st, 2nd, 3rd … på engelska.
 function ordinal(day) {
-  return [1, 2, 21, 22].includes(Number(day)) ? `${day}:a` : `${day}:e`
+  const n = Number(day)
+  if (locale() === 'sv') return [1, 2, 21, 22].includes(n) ? `${n}:a` : `${n}:e`
+  const suffix = n % 100 >= 11 && n % 100 <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th'
+  return `${n}${suffix}`
 }
 
 function scheduleText(s) {
-  if (!s || s.frequency === 'none' || !s.frequency) return 'Körs när du startar den'
-  if (s.frequency === 'daily') return `Varje dag kl. ${s.time}`
-  if (s.frequency === 'weekly') return `Varje ${weekdays[(s.weekday || 1) - 1]} kl. ${s.time}`
-  return `Den ${ordinal(s.monthday)} varje månad kl. ${s.time}`
+  if (!s || s.frequency === 'none' || !s.frequency) return t('Runs when you start it')
+  if (s.frequency === 'daily') return t('Every day at {time}', { time: s.time })
+  if (s.frequency === 'weekly') return t('Every {weekday} at {time}', { weekday: t(weekdays[(s.weekday || 1) - 1]), time: s.time })
+  return t('On the {day} of every month at {time}', { day: ordinal(s.monthday), time: s.time })
 }
 
 function jobName(r) {
   const job = r.jobId && overview.value.jobs.find((j) => j.id === r.jobId)
-  return job?.name || r.config?.jobName || 'Engångsbackup'
+  return job?.name || r.config?.jobName || t('One-off backup')
 }
 
 function progressText(r) {
   const p = r.progress || {}
-  if (r.status === 'queued') return 'Väntar på att starta…'
+  if (r.status === 'queued') return t('Waiting to start…')
   if (p.phase === 'messages') {
-    const folder = p.foldersTotal ? ` · mapp ${Math.min(p.foldersDone + 1, p.foldersTotal)} av ${p.foldersTotal}` : ''
-    return `${p.messagesDone ?? 0} av ${p.messagesTotal ?? 0} meddelanden${folder}${p.folder ? ` (${p.folder})` : ''}`
+    const folder = p.foldersTotal
+      ? t(' · folder {n} of {total}', { n: Math.min(p.foldersDone + 1, p.foldersTotal), total: p.foldersTotal })
+      : ''
+    return `${t('{done} of {total} messages', { done: p.messagesDone ?? 0, total: p.messagesTotal ?? 0 })}${folder}${p.folder ? ` (${p.folder})` : ''}`
   }
-  if (p.phase === 'finishing') return 'Skriver zip-filen…'
-  if (p.phase === 'uploading') return `Laddar upp till Google Drive: ${formatSize(p.uploaded || 0)} av ${formatSize(p.uploadTotal || 0)}`
-  if (p.phase === 'cleanup') return 'Tar bort äldre backuper…'
-  return 'Ansluter…'
+  if (p.phase === 'finishing') return t('Writing the zip file…')
+  if (p.phase === 'uploading') {
+    return t('Uploading to Google Drive: {done} of {total}', { done: formatSize(p.uploaded || 0), total: formatSize(p.uploadTotal || 0) })
+  }
+  if (p.phase === 'cleanup') return t('Removing older backups…')
+  return t('Connecting…')
 }
 
 function progressPercent(r) {
@@ -368,19 +378,19 @@ function progressPercent(r) {
   <div class="modal-backdrop">
     <div class="modal backup">
       <div class="modal-header">
-        <h2>Backup av e-postkonton</h2>
-        <button class="btn ghost" title="Stäng" @click="close"><Icon name="close" /></button>
+        <h2>{{ t('Back up email accounts') }}</h2>
+        <button class="btn ghost" :title="t('Close')" @click="close"><Icon name="close" /></button>
       </div>
 
       <nav class="tabs">
         <button :class="{ active: tab === 'new' }" @click="tab = 'new'">
-          <Icon name="backup" /> {{ editingJobId ? 'Redigera backup' : 'Ny backup' }}
+          <Icon name="backup" /> {{ editingJobId ? t('Edit backup') : t('New backup') }}
         </button>
         <button :class="{ active: tab === 'jobs' }" @click="tab = 'jobs'">
-          <Icon name="clock" /> Sparade backuper <span v-if="overview.jobs.length" class="count">{{ overview.jobs.length }}</span>
+          <Icon name="clock" /> {{ t('Saved backups') }} <span v-if="overview.jobs.length" class="count">{{ overview.jobs.length }}</span>
         </button>
         <button :class="{ active: tab === 'runs' }" @click="tab = 'runs'">
-          <Icon name="all" /> Körningar <span v-if="activeRuns.length" class="count live">{{ activeRuns.length }}</span>
+          <Icon name="all" /> {{ t('Runs') }} <span v-if="activeRuns.length" class="count live">{{ activeRuns.length }}</span>
         </button>
       </nav>
 
@@ -389,156 +399,155 @@ function progressPercent(r) {
 
         <!-- Ny eller redigerad backup -->
         <template v-if="tab === 'new'">
-          <p v-if="!store.accounts.length" class="muted">Lägg till ett e-postkonto först.</p>
+          <p v-if="!store.accounts.length" class="muted">{{ t('Add an email account first.') }}</p>
           <template v-else>
             <label class="field">
-              <span>Konto att säkerhetskopiera</span>
+              <span>{{ t('Account to back up') }}</span>
               <select v-model="form.sourceAccountId" class="input">
                 <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }} &lt;{{ a.email }}&gt;</option>
               </select>
             </label>
 
             <div class="field">
-              <span>Spara till</span>
+              <span>{{ t('Save to') }}</span>
               <div class="targets">
                 <label class="target" :class="{ active: form.type === 'zip' }">
                   <input v-model="form.type" type="radio" value="zip" />
                   <Icon name="zip" :size="20" />
-                  <strong>Zip-fil</strong>
-                  <small class="muted">Ladda ned alla meddelanden som .eml-filer, mapp för mapp.</small>
+                  <strong>{{ t('Zip file') }}</strong>
+                  <small class="muted">{{ t('Download all messages as .eml files, folder by folder.') }}</small>
                 </label>
                 <label class="target" :class="{ active: form.type === 'imap', disabled: !targetAccounts.length }">
                   <input v-model="form.type" type="radio" value="imap" :disabled="!targetAccounts.length" />
                   <Icon name="mail" :size="20" />
-                  <strong>Annat IMAP-konto</strong>
+                  <strong>{{ t('Another IMAP account') }}</strong>
                   <small class="muted">
-                    {{ targetAccounts.length ? 'Kopiera till ett av dina andra konton. Redan kopierade meddelanden hoppas över.' : 'Lägg till ett konto till att kopiera till.' }}
+                    {{ targetAccounts.length ? t('Copy to one of your other accounts. Messages already copied are skipped.') : t('Add another account to copy to.') }}
                   </small>
                 </label>
                 <label class="target" :class="{ active: form.type === 'gdrive' }">
                   <input v-model="form.type" type="radio" value="gdrive" />
                   <Icon name="cloud" :size="20" />
                   <strong>Google Drive</strong>
-                  <small class="muted">Ladda upp en zip-fil till Google Drive, till exempel varje natt.</small>
+                  <small class="muted">{{ t('Upload a zip file to Google Drive, for example every night.') }}</small>
                 </label>
               </div>
             </div>
 
             <div v-if="form.type === 'imap'" class="sub">
               <label class="field">
-                <span>Målkonto</span>
+                <span>{{ t('Target account') }}</span>
                 <select v-model="form.targetAccountId" class="input">
                   <option v-for="a in targetAccounts" :key="a.id" :value="a.id">{{ a.name }} &lt;{{ a.email }}&gt;</option>
                 </select>
               </label>
               <label class="field">
-                <span>Mapp hos målkontot</span>
-                <input v-model="form.targetFolder" class="input" placeholder="Tomt = samma mappar som i originalet" />
+                <span>{{ t('Folder in the target account') }}</span>
+                <input v-model="form.targetFolder" class="input" :placeholder="t('Empty = same folders as the original')" />
                 <small class="muted">
-                  Undermappar skiljs med /. Med en tom mapp hamnar inkorgen i målkontots inkorg och Skickat, Utkast med
-                  flera i motsvarande mappar.
+                  {{ t("Subfolders are separated with /. With an empty folder, the inbox goes to the target account's inbox, and Sent, Drafts and so on to the corresponding folders.") }}
                 </small>
               </label>
             </div>
 
             <div v-if="form.type === 'gdrive'" class="sub">
               <p v-if="!overview.driveConfigured" class="error-text">
-                Google-inloggning är inte konfigurerad på servern. Se avsnittet om Google-inloggning i README.
+                {{ t('Google sign-in is not configured on the server. See the section on Google sign-in in the README.') }}
               </p>
               <template v-else>
                 <div v-if="connections.length" class="field">
-                  <span>Google Drive-konto</span>
+                  <span>{{ t('Google Drive account') }}</span>
                   <div v-for="c in connections" :key="c.id" class="connection">
                     <label class="radio">
                       <input v-model="form.connectionId" type="radio" :value="c.id" />
                       {{ c.email }}
                     </label>
-                    <button class="btn ghost small" :disabled="busy" title="Koppla bort" @click="removeConnection(c)">
-                      Koppla bort
+                    <button class="btn ghost small" :disabled="busy" :title="t('Disconnect')" @click="removeConnection(c)">
+                      {{ t('Disconnect') }}
                     </button>
                   </div>
                 </div>
                 <GoogleSignIn
                   :start="api.driveOauthStart"
                   :login-hint="driveLoginHint"
-                  :label="connections.length ? 'Anslut ett annat Google Drive' : 'Anslut Google Drive'"
+                  :label="connections.length ? t('Connect another Google Drive') : t('Connect Google Drive')"
                   :disabled="busy"
                   @signed-in="onDriveSignedIn"
                 />
                 <small v-if="driveLoginHint" class="muted block">
-                  Googles fönster föreslår {{ driveLoginHint }}, samma konto som e-posten. Du kan välja ett annat
-                  Google-konto där om backupen ska hamna i ett annat Drive.
+                  {{ t("Google's window suggests {email}, the same account as the email. You can choose another Google account there if the backup should go to a different Drive.", { email: driveLoginHint }) }}
                 </small>
                 <small class="muted block">
-                  PigeonPost får bara åtkomst till filer som appen själv skapar. Backuperna hamnar i mappen
+                  {{ t('PigeonPost only gets access to files the app creates itself. The backups go to the folder') }}
                   <strong>{{ overview.driveFolderName }}</strong>.
                 </small>
                 <label v-if="scheduled" class="field inline">
-                  <span>Behåll de senaste</span>
+                  <span>{{ t('Keep the latest') }}</span>
                   <input v-model.number="form.keep" class="input narrow" type="number" min="1" max="365" />
-                  <span>backuperna i Drive</span>
+                  <span>{{ t('backups in Drive') }}</span>
                 </label>
               </template>
             </div>
 
             <div class="field">
-              <span>Mappar</span>
+              <span>{{ t('Folders') }}</span>
               <div class="folders-summary">
-                <span>{{ includedCount }} av {{ sourceFolders.length }} mappar ingår</span>
+                <span>{{ t('{included} of {total} folders included', { included: includedCount, total: sourceFolders.length }) }}</span>
                 <button class="btn ghost small" @click="showFolders = !showFolders">
-                  {{ showFolders ? 'Dölj' : 'Välj mappar' }}
+                  {{ showFolders ? t('Hide') : t('Choose folders') }}
                 </button>
               </div>
               <div v-if="showFolders" class="folder-list">
                 <div class="folder-actions">
-                  <button class="btn ghost small" @click="setAllFolders(true)">Markera alla</button>
-                  <button class="btn ghost small" @click="setAllFolders(false)">Avmarkera alla</button>
+                  <button class="btn ghost small" @click="setAllFolders(true)">{{ t('Select all') }}</button>
+                  <button class="btn ghost small" @click="setAllFolders(false)">{{ t('Deselect all') }}</button>
                 </div>
                 <label v-for="f in sourceFolders" :key="f.path" class="radio">
                   <input type="checkbox" :checked="!form.excludeFolders.includes(f.path)" @change="toggleFolder(f.path)" />
                   {{ f.path }} <span class="muted">({{ f.total }})</span>
                 </label>
-                <p v-if="!sourceFolders.length" class="muted">Mapparna kunde inte hämtas.</p>
+                <p v-if="!sourceFolders.length" class="muted">{{ t('The folders could not be fetched.') }}</p>
               </div>
               <small v-if="defaultExcluded(form.sourceAccountId).length" class="muted">
-                Gmails Alla mail och Stjärnmärkt är avmarkerade från början, eftersom de bara innehåller kopior av
-                meddelanden i andra mappar. Mappar som skapas senare kommer med automatiskt.
+                {{ t("Gmail's All Mail and Starred are deselected from the start, since they only contain copies of messages in other folders. Folders created later are included automatically.") }}
               </small>
             </div>
 
             <div class="field">
-              <span>Schema</span>
+              <span>{{ t('Schedule') }}</span>
               <div class="schedule">
                 <select v-model="form.frequency" class="input auto">
-                  <option value="none">Ingen, jag startar den själv</option>
-                  <option value="daily" :disabled="form.type === 'zip'">Varje dag</option>
-                  <option value="weekly" :disabled="form.type === 'zip'">Varje vecka</option>
-                  <option value="monthly" :disabled="form.type === 'zip'">Varje månad</option>
+                  <option value="none">{{ t('None, I start it myself') }}</option>
+                  <option value="daily" :disabled="form.type === 'zip'">{{ t('Every day') }}</option>
+                  <option value="weekly" :disabled="form.type === 'zip'">{{ t('Every week') }}</option>
+                  <option value="monthly" :disabled="form.type === 'zip'">{{ t('Every month') }}</option>
                 </select>
                 <select v-if="form.frequency === 'weekly'" v-model="form.weekday" class="input auto">
-                  <option v-for="(d, i) in weekdays" :key="d" :value="i + 1">på {{ d }}ar</option>
+                  <option v-for="(d, i) in weekdays" :key="d" :value="i + 1">{{ t('on {weekday}s', { weekday: t(d) }) }}</option>
                 </select>
                 <template v-if="form.frequency === 'monthly'">
-                  <span>den</span>
+                  <span>{{ t('on the') }}</span>
                   <input v-model.number="form.monthday" class="input narrow" type="number" min="1" max="28" />
                 </template>
                 <template v-if="scheduled">
-                  <span>kl.</span>
+                  <span>{{ t('at') }}</span>
                   <input v-model="form.time" class="input auto" type="time" required />
                 </template>
               </div>
               <small v-if="form.type === 'zip'" class="muted">
-                En zip-fil för nedladdning kan inte schemaläggas. Välj Google Drive eller ett IMAP-konto för regelbundna backuper.
+                {{ t('A zip file for download cannot be scheduled. Choose Google Drive or an IMAP account for regular backups.') }}
               </small>
-              <small v-else-if="scheduled" class="muted">Tiden gäller tidszonen {{ timezone }}. Servern behöver vara igång.</small>
+              <small v-else-if="scheduled" class="muted">
+                {{ t('The time is in the {timezone} time zone. The server needs to be running.', { timezone }) }}
+              </small>
             </div>
 
             <label v-if="scheduled || editingJobId" class="field">
-              <span>Namn</span>
+              <span>{{ t('Name') }}</span>
               <input v-model="form.name" class="input" :placeholder="defaultName" maxlength="200" />
             </label>
             <label v-if="editingJobId && scheduled" class="radio">
-              <input v-model="form.enabled" type="checkbox" /> Schemat är aktivt
+              <input v-model="form.enabled" type="checkbox" /> {{ t('Schedule is active') }}
             </label>
 
             <p v-if="formError" class="error-text">{{ formError }}</p>
@@ -547,10 +556,10 @@ function progressPercent(r) {
 
         <!-- Sparade backuper -->
         <template v-else-if="tab === 'jobs'">
-          <p v-if="loading" class="muted">Hämtar…</p>
+          <p v-if="loading" class="muted">{{ t('Loading…') }}</p>
           <div v-else-if="!overview.jobs.length" class="empty">
-            <p class="muted">Inga sparade backuper. Välj ett schema under Ny backup för att köra en backup regelbundet.</p>
-            <button class="btn primary" @click="tab = 'new'">Ny backup</button>
+            <p class="muted">{{ t('No saved backups. Choose a schedule under New backup to run a backup regularly.') }}</p>
+            <button class="btn primary" @click="tab = 'new'">{{ t('New backup') }}</button>
           </div>
           <div v-for="job in overview.jobs" :key="job.id" class="card" :class="{ paused: !job.enabled }">
             <div class="card-head">
@@ -561,34 +570,34 @@ function progressPercent(r) {
                   {{ accountEmail(job.config.sourceAccountId, job.config.sourceEmail) }} → {{ destinationText(job.config) }}
                 </span>
               </div>
-              <span v-if="!job.enabled" class="badge">Pausad</span>
+              <span v-if="!job.enabled" class="badge">{{ t('Paused') }}</span>
             </div>
             <div class="card-meta muted">
               <span><Icon name="clock" :size="12" /> {{ scheduleText(job.schedule) }}</span>
-              <span v-if="job.enabled && job.nextRunAt">Nästa: {{ formatFullDate(job.nextRunAt) }}</span>
+              <span v-if="job.enabled && job.nextRunAt">{{ t('Next:') }} {{ formatFullDate(job.nextRunAt) }}</span>
               <span v-if="job.lastRun">
-                Senast: <span :class="`status-${job.lastRun.status}`">{{ statusLabels[job.lastRun.status] }}</span>
+                {{ t('Last:') }} <span :class="`status-${job.lastRun.status}`">{{ t(statusLabels[job.lastRun.status]) }}</span>
                 {{ formatFullDate(job.lastRun.finishedAt || job.lastRun.createdAt) }}
               </span>
             </div>
             <p v-if="job.lastRun?.status === 'failed'" class="error-text small">{{ job.lastRun.message }}</p>
             <div class="card-actions">
               <button class="btn small" :disabled="busy || ['queued', 'running'].includes(job.lastRun?.status)" @click="runJob(job)">
-                <Icon name="play" :size="12" /> Kör nu
+                <Icon name="play" :size="12" /> {{ t('Run now') }}
               </button>
-              <button class="btn small" :disabled="busy" @click="editJob(job)"><Icon name="settings" :size="12" /> Redigera</button>
+              <button class="btn small" :disabled="busy" @click="editJob(job)"><Icon name="settings" :size="12" /> {{ t('Edit') }}</button>
               <button v-if="job.schedule.frequency !== 'none'" class="btn small" :disabled="busy" @click="toggleJob(job)">
-                <Icon :name="job.enabled ? 'pause' : 'play'" :size="12" /> {{ job.enabled ? 'Pausa' : 'Aktivera' }}
+                <Icon :name="job.enabled ? 'pause' : 'play'" :size="12" /> {{ job.enabled ? t('Pause') : t('Enable') }}
               </button>
-              <button class="btn small danger" :disabled="busy" @click="deleteJob(job)"><Icon name="trash" :size="12" /> Ta bort</button>
+              <button class="btn small danger" :disabled="busy" @click="deleteJob(job)"><Icon name="trash" :size="12" /> {{ t('Delete') }}</button>
             </div>
           </div>
         </template>
 
         <!-- Körningar -->
         <template v-else>
-          <p v-if="loading" class="muted">Hämtar…</p>
-          <p v-else-if="!overview.runs.length" class="muted">Inga backuper har körts ännu.</p>
+          <p v-if="loading" class="muted">{{ t('Loading…') }}</p>
+          <p v-else-if="!overview.runs.length" class="muted">{{ t('No backups have run yet.') }}</p>
           <div v-for="r in overview.runs" :key="r.id" class="card" :class="`run-${r.status}`">
             <div class="card-head">
               <Icon :name="destinationIcon(r.config)" :size="18" />
@@ -598,7 +607,7 @@ function progressPercent(r) {
                   {{ accountEmail(r.config.sourceAccountId, r.config.sourceEmail) }} → {{ destinationText(r.config) }}
                 </span>
               </div>
-              <span class="badge" :class="`status-${r.status}`">{{ statusLabels[r.status] || r.status }}</span>
+              <span class="badge" :class="`status-${r.status}`">{{ statusLabels[r.status] ? t(statusLabels[r.status]) : r.status }}</span>
             </div>
 
             <template v-if="r.status === 'queued' || r.status === 'running'">
@@ -610,27 +619,27 @@ function progressPercent(r) {
             <div class="card-meta muted">
               <span>{{ formatFullDate(r.startedAt || r.createdAt) }}</span>
               <span v-if="r.fileSize">{{ formatSize(r.fileSize) }}</span>
-              <span v-if="r.hasFile && r.expiresAt">Tas bort {{ formatFullDate(r.expiresAt) }}</span>
+              <span v-if="r.hasFile && r.expiresAt">{{ t('Will be deleted {date}', { date: formatFullDate(r.expiresAt) }) }}</span>
               <button v-if="r.progress?.warningCount" class="link" @click="toggleRunDetails(r.id)">
-                {{ r.progress.warningCount }} varning{{ r.progress.warningCount === 1 ? '' : 'ar' }}
+                {{ r.progress.warningCount === 1 ? t('1 warning') : t('{n} warnings', { n: r.progress.warningCount }) }}
               </button>
             </div>
             <ul v-if="expandedRuns.has(r.id)" class="warnings">
               <li v-for="(w, i) in r.progress.warnings" :key="i">{{ w }}</li>
               <li v-if="r.progress.warningCount > r.progress.warnings.length" class="muted">
-                … och {{ r.progress.warningCount - r.progress.warnings.length }} till (se serverloggen)
+                {{ t('… and {n} more (see the server log)', { n: r.progress.warningCount - r.progress.warnings.length }) }}
               </li>
             </ul>
 
             <div class="card-actions">
               <a v-if="r.hasFile" class="btn small primary" :href="backupDownloadUrl(r.id)" download>
-                <Icon name="download" :size="12" /> Ladda ned
+                <Icon name="download" :size="12" /> {{ t('Download') }}
               </a>
               <button v-if="r.status === 'queued' || r.status === 'running'" class="btn small" :disabled="busy" @click="cancelRun(r)">
-                <Icon name="stop" :size="12" /> Avbryt
+                <Icon name="stop" :size="12" /> {{ t('Cancel') }}
               </button>
               <button v-else class="btn small ghost" :disabled="busy" @click="deleteRun(r)">
-                <Icon name="trash" :size="12" /> Ta bort
+                <Icon name="trash" :size="12" /> {{ t('Delete') }}
               </button>
             </div>
           </div>
@@ -638,16 +647,16 @@ function progressPercent(r) {
       </div>
 
       <div v-if="tab === 'new' && store.accounts.length" class="modal-footer">
-        <button v-if="editingJobId" class="btn" :disabled="busy" @click="resetForm">Avbryt redigering</button>
+        <button v-if="editingJobId" class="btn" :disabled="busy" @click="resetForm">{{ t('Cancel editing') }}</button>
         <div class="spacer" />
         <template v-if="scheduled || editingJobId">
-          <button class="btn" :disabled="busy" @click="saveJob({ runAfterSave: true })">Spara och kör nu</button>
+          <button class="btn" :disabled="busy" @click="saveJob({ runAfterSave: true })">{{ t('Save and run now') }}</button>
           <button class="btn primary" :disabled="busy" @click="saveJob()">
-            {{ editingJobId ? 'Spara ändringar' : 'Spara schema' }}
+            {{ editingJobId ? t('Save changes') : t('Save schedule') }}
           </button>
         </template>
         <button v-else class="btn primary" :disabled="busy" @click="startNow">
-          <Icon name="play" :size="14" /> Starta backup
+          <Icon name="play" :size="14" /> {{ t('Start backup') }}
         </button>
       </div>
     </div>

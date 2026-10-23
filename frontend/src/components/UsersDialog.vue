@@ -1,6 +1,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { api } from '../api'
+import { locale, t } from '../i18n'
 import { useMailStore } from '../store'
 import Icon from './Icon.vue'
 
@@ -14,7 +15,9 @@ const form = reactive({ username: '', password: '', isAdmin: false })
 const resetFor = ref(null) // användar-id vars lösenord återställs
 const resetPassword = ref('')
 
-const dateFmt = new Intl.DateTimeFormat('sv-SE', { dateStyle: 'medium' })
+function formatDate(seconds) {
+  return new Intl.DateTimeFormat(locale(), { dateStyle: 'medium' }).format(new Date(seconds * 1000))
+}
 
 async function load() {
   loading.value = true
@@ -52,7 +55,7 @@ async function run(action, successText) {
 
 async function create() {
   const username = form.username.trim()
-  const ok = await run(() => api.createUser({ ...form, username }), `Användaren ${username} skapades`)
+  const ok = await run(() => api.createUser({ ...form, username }), t('User {name} was created', { name: username }))
   if (ok) Object.assign(form, { username: '', password: '', isAdmin: false })
 }
 
@@ -64,7 +67,7 @@ function startReset(user) {
 async function saveReset(user) {
   const ok = await run(
     () => api.updateUser(user.id, { password: resetPassword.value }),
-    `Lösenordet för ${user.username} ändrades`,
+    t('The password for {name} was changed', { name: user.username }),
   )
   if (ok) resetFor.value = null
 }
@@ -74,9 +77,12 @@ function toggleAdmin(user) {
 }
 
 function remove(user) {
-  const question = `Ta bort användaren ${user.username}? Användarens e-postkonton tas bort från PigeonPost (e-posten på servrarna påverkas inte).`
+  const question = t(
+    'Delete the user {name}? Their email accounts are removed from PigeonPost (the mail on the servers is not affected).',
+    { name: user.username },
+  )
   if (!window.confirm(question)) return
-  run(() => api.deleteUser(user.id), `Användaren ${user.username} togs bort`)
+  run(() => api.deleteUser(user.id), t('User {name} was deleted', { name: user.username }))
 }
 
 function onKey(event) {
@@ -94,34 +100,34 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop">
     <div class="modal users">
       <div class="modal-header">
-        <h2>Hantera användare</h2>
-        <button class="btn ghost" title="Stäng" @click="store.usersDialog = false"><Icon name="close" /></button>
+        <h2>{{ t('Manage users') }}</h2>
+        <button class="btn ghost" :title="t('Close')" @click="store.usersDialog = false"><Icon name="close" /></button>
       </div>
 
       <div class="content">
         <form class="create" @submit.prevent="create">
-          <h3>Ny användare</h3>
+          <h3>{{ t('New user') }}</h3>
           <div class="create-grid">
-            <input v-model="form.username" class="input" placeholder="Användarnamn" autocomplete="off" required />
+            <input v-model="form.username" class="input" :placeholder="t('Username')" autocomplete="off" required />
             <div class="password-row">
-              <input v-model="form.password" class="input" type="text" placeholder="Lösenord (minst 8 tecken)" autocomplete="new-password" required />
-              <button type="button" class="btn" title="Generera ett slumpat lösenord" @click="form.password = generatePassword()">Generera</button>
+              <input v-model="form.password" class="input" type="text" :placeholder="t('Password (at least 8 characters)')" autocomplete="new-password" required />
+              <button type="button" class="btn" :title="t('Generate a random password')" @click="form.password = generatePassword()">{{ t('Generate') }}</button>
             </div>
-            <label class="check"><input v-model="form.isAdmin" type="checkbox" /> Administratör</label>
-            <button class="btn primary" type="submit" :disabled="busy || !form.username || form.password.length < 8">Skapa</button>
+            <label class="check"><input v-model="form.isAdmin" type="checkbox" /> {{ t('Administrator') }}</label>
+            <button class="btn primary" type="submit" :disabled="busy || !form.username || form.password.length < 8">{{ t('Create') }}</button>
           </div>
-          <p class="muted hint">Lämna över lösenordet till användaren på ett säkert sätt. Hen kan byta det själv efter inloggning.</p>
+          <p class="muted hint">{{ t('Hand the password to the user in a secure way. They can change it themselves after signing in.') }}</p>
         </form>
 
         <p v-if="error" class="error-text">{{ error }}</p>
-        <p v-if="loading" class="muted">Laddar…</p>
+        <p v-if="loading" class="muted">{{ t('Loading…') }}</p>
 
         <table v-else>
           <thead>
             <tr>
-              <th>Användare</th>
-              <th>Roll</th>
-              <th>Skapad</th>
+              <th>{{ t('User') }}</th>
+              <th>{{ t('Role') }}</th>
+              <th>{{ t('Created') }}</th>
               <th />
             </tr>
           </thead>
@@ -130,27 +136,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               <tr>
                 <td>
                   <strong>{{ u.username }}</strong>
-                  <span v-if="u.id === store.user?.id" class="muted"> (du)</span>
+                  <span v-if="u.id === store.user?.id" class="muted"> {{ t('(you)') }}</span>
                 </td>
-                <td>{{ u.isAdmin ? 'Administratör' : 'Användare' }}</td>
-                <td class="muted">{{ dateFmt.format(new Date(u.createdAt * 1000)) }}</td>
+                <td>{{ u.isAdmin ? t('Administrator') : t('User') }}</td>
+                <td class="muted">{{ formatDate(u.createdAt) }}</td>
                 <td class="actions">
-                  <button class="btn" :disabled="busy" @click="startReset(u)">Nytt lösenord</button>
+                  <button class="btn" :disabled="busy" @click="startReset(u)">{{ t('New password') }}</button>
                   <button v-if="u.id !== store.user?.id" class="btn" :disabled="busy" @click="toggleAdmin(u)">
-                    {{ u.isAdmin ? 'Gör till användare' : 'Gör till admin' }}
+                    {{ u.isAdmin ? t('Make user') : t('Make admin') }}
                   </button>
-                  <button v-if="u.id !== store.user?.id" class="btn danger" :disabled="busy" @click="remove(u)">Ta bort</button>
+                  <button v-if="u.id !== store.user?.id" class="btn danger" :disabled="busy" @click="remove(u)">{{ t('Delete') }}</button>
                 </td>
               </tr>
               <tr v-if="resetFor === u.id" class="reset-row">
                 <td colspan="4">
                   <form class="password-row" @submit.prevent="saveReset(u)">
                     <input v-model="resetPassword" class="input" type="text" autocomplete="new-password" />
-                    <button type="button" class="btn" @click="resetPassword = generatePassword()">Generera</button>
-                    <button class="btn primary" type="submit" :disabled="busy || resetPassword.length < 8">Spara</button>
-                    <button type="button" class="btn ghost" @click="resetFor = null">Avbryt</button>
+                    <button type="button" class="btn" @click="resetPassword = generatePassword()">{{ t('Generate') }}</button>
+                    <button class="btn primary" type="submit" :disabled="busy || resetPassword.length < 8">{{ t('Save') }}</button>
+                    <button type="button" class="btn ghost" @click="resetFor = null">{{ t('Cancel') }}</button>
                   </form>
-                  <p class="muted hint">Användaren loggas ut på alla enheter.</p>
+                  <p class="muted hint">{{ t('The user is signed out on all devices.') }}</p>
                 </td>
               </tr>
             </template>

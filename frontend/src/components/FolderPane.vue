@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { locale, t } from '../i18n'
 import { useMailStore } from '../store'
 import { buildFolderTree, formatListDate } from '../utils'
 import FolderNode from './FolderNode.vue'
@@ -32,7 +33,7 @@ function onDrop(event, account) {
   if (dragged && dragged.accountId === account.id) store.moveFolder(account.id, dragged.folder, '')
 }
 
-const numberFmt = new Intl.NumberFormat('sv-SE')
+const numberFmt = computed(() => new Intl.NumberFormat(locale()))
 
 // Olästa i alla konton, räknat som vyn visar dem: utan papperskorg, skräppost, skickat, utkast och virtuella mappar.
 const unreadTotal = computed(() =>
@@ -51,16 +52,21 @@ function cacheNote(accountId) {
   const s = store.cacheStatus[accountId]
   if (!s) return null
   if (s.state === 'offline') {
-    const since = s.lastSyncAt ? ` från ${formatListDate(s.lastSyncAt)}` : ''
-    return { offline: true, text: `Ingen kontakt med mejlservern. Visar sparade mejl${since}.`, title: s.error }
+    const text = s.lastSyncAt
+      ? t('No contact with the mail server. Showing saved mail from {date}.', { date: formatListDate(s.lastSyncAt) })
+      : t('No contact with the mail server. Showing saved mail.')
+    return { offline: true, text, title: s.error }
   }
   if (s.complete || !s.messages) return null
   if (s.foldersComplete < s.folders) {
-    return { text: `Synkar mappar: ${s.foldersComplete} av ${s.folders} klara`, title: 'Mejlens rubriker sparas i cachen. Mappar som inte är klara läses direkt från mejlservern.' }
+    return {
+      text: t('Syncing folders: {done} of {total} done', { done: s.foldersComplete, total: s.folders }),
+      title: t('Message headers are being saved to the cache. Folders that are not done yet are read directly from the mail server.'),
+    }
   }
   return {
-    text: `Sparar mejltext: ${numberFmt.format(s.bodies)} av ${numberFmt.format(s.messages)}`,
-    title: 'Meddelandenas text sparas i cachen, nyast först. Det som inte är sparat än läses direkt från mejlservern.',
+    text: t('Saving message text: {done} of {total}', { done: numberFmt.value.format(s.bodies), total: numberFmt.value.format(s.messages) }),
+    title: t('Message text is being saved to the cache, newest first. Anything not saved yet is read directly from the mail server.'),
   }
 }
 
@@ -69,10 +75,10 @@ function accountMenu(event, account) {
     x: event.clientX,
     y: event.clientY,
     items: [
-      { label: 'Ny mapp…', action: () => store.createFolder(account.id, '', '') },
-      { label: 'Uppdatera mappar', action: () => store.loadFolders(account.id) },
-      { label: 'Kontoinställningar…', action: () => (store.accountDialog = { ...account }) },
-      { label: 'Backup…', action: () => (store.backupDialog = { accountId: account.id }) },
+      { label: t('New folder…'), action: () => store.createFolder(account.id, '', '') },
+      { label: t('Refresh folders'), action: () => store.loadFolders(account.id) },
+      { label: t('Account settings…'), action: () => (store.accountDialog = { ...account }) },
+      { label: t('Backup…'), action: () => (store.backupDialog = { accountId: account.id }) },
     ],
   }
 }
@@ -84,11 +90,11 @@ function accountMenu(event, account) {
       v-if="store.accounts.length"
       class="view-row"
       :class="{ active: store.current.view === 'unread' }"
-      title="Olästa meddelanden i alla konton och mappar, utom papperskorg, skräppost, skickat och utkast"
+      :title="t('Unread messages in all accounts and folders, except Trash, Junk, Sent and Drafts')"
       @click="store.selectView('unread')"
     >
       <Icon name="unread" :size="15" />
-      <span class="view-name">Olästa</span>
+      <span class="view-name">{{ t('Unread') }}</span>
       <span v-if="unreadTotal" class="view-count">{{ numberFmt.format(unreadTotal) }}</span>
     </div>
     <div v-for="account in store.accounts" :key="account.id" class="account">
@@ -126,8 +132,8 @@ function accountMenu(event, account) {
     </div>
 
     <div v-if="!store.accounts.length" class="empty">
-      <p class="muted">Inga konton ännu.</p>
-      <button class="btn primary" @click="store.accountDialog = {}">Lägg till konto</button>
+      <p class="muted">{{ t('No accounts yet.') }}</p>
+      <button class="btn primary" @click="store.accountDialog = {}">{{ t('Add account') }}</button>
     </div>
   </nav>
 </template>

@@ -22,7 +22,7 @@ using CipherCtx = std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)
 
 CipherCtx newCtx() {
     CipherCtx ctx(EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free);
-    if (!ctx) throw std::runtime_error("EVP_CIPHER_CTX_new misslyckades");
+    if (!ctx) throw std::runtime_error("EVP_CIPHER_CTX_new failed");
     return ctx;
 }
 
@@ -35,7 +35,7 @@ const unsigned char* u(const std::string& s) {
 std::string randomBytes(std::size_t n) {
     std::string out(n, '\0');
     if (RAND_bytes(reinterpret_cast<unsigned char*>(out.data()), static_cast<int>(n)) != 1) {
-        throw std::runtime_error("RAND_bytes misslyckades");
+        throw std::runtime_error("RAND_bytes failed");
     }
     return out;
 }
@@ -60,11 +60,11 @@ std::string base64Encode(const std::string& bytes) {
 }
 
 std::string base64Decode(const std::string& text) {
-    if (text.size() % 4 != 0) throw std::runtime_error("Ogiltig base64");
+    if (text.size() % 4 != 0) throw std::runtime_error("Invalid base64");
     std::string out(3 * text.size() / 4, '\0');
     int n = EVP_DecodeBlock(reinterpret_cast<unsigned char*>(out.data()), u(text),
                             static_cast<int>(text.size()));
-    if (n < 0) throw std::runtime_error("Ogiltig base64");
+    if (n < 0) throw std::runtime_error("Invalid base64");
     // EVP_DecodeBlock räknar utfyllnad som data; ta bort motsvarande nollor.
     std::size_t padding = 0;
     if (!text.empty() && text.back() == '=') ++padding;
@@ -86,20 +86,20 @@ std::string base64UrlEncode(const std::string& bytes) {
 std::string rs256Sign(const std::string& pemPrivateKey, const std::string& data) {
     std::unique_ptr<BIO, decltype(&BIO_free)> bio(
         BIO_new_mem_buf(pemPrivateKey.data(), static_cast<int>(pemPrivateKey.size())), &BIO_free);
-    if (!bio) throw std::runtime_error("BIO_new_mem_buf misslyckades");
+    if (!bio) throw std::runtime_error("BIO_new_mem_buf failed");
     std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key(PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr),
                                                             &EVP_PKEY_free);
-    if (!key) throw std::runtime_error("Kunde inte läsa den privata nyckeln (PEM)");
+    if (!key) throw std::runtime_error("Could not read the private key (PEM)");
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
     if (!ctx || EVP_DigestSignInit(ctx.get(), nullptr, EVP_sha256(), nullptr, key.get()) != 1) {
-        throw std::runtime_error("EVP_DigestSignInit misslyckades");
+        throw std::runtime_error("EVP_DigestSignInit failed");
     }
     const auto* in = reinterpret_cast<const unsigned char*>(data.data());
     std::size_t len = 0;
-    if (EVP_DigestSign(ctx.get(), nullptr, &len, in, data.size()) != 1) throw std::runtime_error("EVP_DigestSign misslyckades");
+    if (EVP_DigestSign(ctx.get(), nullptr, &len, in, data.size()) != 1) throw std::runtime_error("EVP_DigestSign failed");
     std::string sig(len, '\0');
     if (EVP_DigestSign(ctx.get(), reinterpret_cast<unsigned char*>(sig.data()), &len, in, data.size()) != 1) {
-        throw std::runtime_error("EVP_DigestSign misslyckades");
+        throw std::runtime_error("EVP_DigestSign failed");
     }
     sig.resize(len);
     return sig;
@@ -109,7 +109,7 @@ std::string sha256(const std::string& data) {
     unsigned char md[EVP_MAX_MD_SIZE];
     unsigned int len = 0;
     if (EVP_Digest(data.data(), data.size(), md, &len, EVP_sha256(), nullptr) != 1) {
-        throw std::runtime_error("SHA-256 misslyckades");
+        throw std::runtime_error("SHA-256 failed");
     }
     return std::string(reinterpret_cast<char*>(md), len);
 }
@@ -134,7 +134,7 @@ std::string scrypt(const std::string& password, const std::string& salt, std::ui
     std::string key(kScryptKeyLen, '\0');
     if (EVP_PBE_scrypt(password.data(), password.size(), u(salt), salt.size(), n, r, p, kScryptMaxMem,
                        reinterpret_cast<unsigned char*>(key.data()), key.size()) != 1) {
-        throw std::runtime_error("scrypt misslyckades");
+        throw std::runtime_error("scrypt failed");
     }
     return key;
 }
@@ -183,20 +183,20 @@ std::string encrypt(const std::string& key32, const std::string& plaintext) {
     if (EVP_EncryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr, u(key32), u(iv)) != 1 ||
         EVP_EncryptUpdate(ctx.get(), reinterpret_cast<unsigned char*>(cipher.data()), &len,
                           u(plaintext), static_cast<int>(plaintext.size())) != 1) {
-        throw std::runtime_error("Kryptering misslyckades");
+        throw std::runtime_error("Encryption failed");
     }
     int finalLen = 0;
     unsigned char tag[kTagLen];
     if (EVP_EncryptFinal_ex(ctx.get(), nullptr, &finalLen) != 1 ||
         EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_GET_TAG, kTagLen, tag) != 1) {
-        throw std::runtime_error("Kryptering misslyckades");
+        throw std::runtime_error("Encryption failed");
     }
     return base64Encode(iv + std::string(reinterpret_cast<char*>(tag), kTagLen) + cipher);
 }
 
 std::string decrypt(const std::string& key32, const std::string& token) {
     std::string raw = base64Decode(token);
-    if (raw.size() < kIvLen + kTagLen) throw std::runtime_error("Ogiltig chiffertext");
+    if (raw.size() < kIvLen + kTagLen) throw std::runtime_error("Invalid ciphertext");
     std::string iv = raw.substr(0, kIvLen);
     std::string tag = raw.substr(kIvLen, kTagLen);
     std::string cipher = raw.substr(kIvLen + kTagLen);
@@ -211,7 +211,7 @@ std::string decrypt(const std::string& key32, const std::string& token) {
         EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, kTagLen,
                             const_cast<char*>(tag.data())) != 1 ||
         EVP_DecryptFinal_ex(ctx.get(), nullptr, &finalLen) != 1) {
-        throw std::runtime_error("Dekryptering misslyckades (fel SECRET_KEY?)");
+        throw std::runtime_error("Decryption failed (wrong SECRET_KEY?)");
     }
     return plain;
 }

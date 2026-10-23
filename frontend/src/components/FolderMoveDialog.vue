@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
 import { isInsideFolder, specialFolderNames } from '../utils'
 import Icon from './Icon.vue'
@@ -14,7 +15,7 @@ const destinations = computed(() =>
     .filter((f) => !isInsideFolder(f.path, folder) && !['all', 'flagged', 'important'].includes(f.specialUse))
     .map((f) => ({
       path: f.path,
-      label: specialFolderNames[f.specialUse] || f.path,
+      label: f.specialUse && specialFolderNames[f.specialUse] ? t(specialFolderNames[f.specialUse]) : f.path,
       depth: f.delimiter ? f.path.split(f.delimiter).length : 1,
     })),
 )
@@ -38,25 +39,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop">
     <form class="modal move" @submit.prevent="submit">
       <div class="modal-header">
-        <h2>Flytta mappen ”{{ folder.name }}”</h2>
-        <button type="button" class="btn ghost" title="Stäng" @click="store.folderMoveDialog = null"><Icon name="close" /></button>
+        <h2>{{ t('Move folder “{name}”', { name: folder.name }) }}</h2>
+        <button type="button" class="btn ghost" :title="t('Close')" @click="store.folderMoveDialog = null"><Icon name="close" /></button>
       </div>
       <div class="content">
         <label>
-          <span>Flytta till</span>
+          <span>{{ t('Move to') }}</span>
           <select v-model="parent" class="input" size="12" autofocus>
-            <option value="">(Översta nivån)</option>
+            <option value="">{{ t('(Top level)') }}</option>
             <option v-for="d in destinations" :key="d.path" :value="d.path" :style="{ paddingLeft: d.depth * 12 + 'px' }">
               {{ d.label }}
             </option>
           </select>
         </label>
-        <p class="muted">Undermappar och meddelanden följer med. Du kan också dra mappen dit du vill ha den i mapplistan.</p>
+        <p class="muted">{{ t('Subfolders and messages move along. You can also drag the folder to where you want it in the folder list.') }}</p>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn" @click="store.folderMoveDialog = null">Avbryt</button>
+        <button type="button" class="btn" @click="store.folderMoveDialog = null">{{ t('Cancel') }}</button>
         <button type="submit" class="btn primary" :disabled="busy || parent === store.parentPath(folder)">
-          {{ busy ? 'Flyttar…' : 'Flytta' }}
+          {{ busy ? t('Moving…') : t('Move') }}
         </button>
       </div>
     </form>

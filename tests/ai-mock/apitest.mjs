@@ -67,7 +67,7 @@ const noKey = await api('PUT', '/ai', { baseUrl: GEMINI_URL, model: 'gemini-flas
 log(noKey.status === 400, 'API-nyckel krävs för inbyggda tjänster', JSON.stringify(noKey.data))
 
 const badKey = await api('POST', '/ai/test', { baseUrl: MOCK_URL, model: 'mock-sorter', apiKey: 'fel-nyckel' })
-log(badKey.data.ok === false && /API-nyckeln/.test(badKey.data.error), 'test med fel nyckel ger begripligt fel', badKey.data.error)
+log(badKey.data.ok === false && /API key/.test(badKey.data.error), 'test med fel nyckel ger begripligt fel', badKey.data.error)
 const goodKey = await api('POST', '/ai/test', { baseUrl: MOCK_URL, model: 'mock-sorter', apiKey: 'test-key' })
 log(goodKey.data.ok === true && goodKey.data.models.includes('mock-sorter') && !goodKey.data.warning,
     'test listar modeller utan prefixet models/', JSON.stringify(goodKey.data))
@@ -227,11 +227,11 @@ log(flaky.status === 200 && (await mockRequests()).length === 2, 'ett tillfälli
 
 await useModel('mock-busy')
 const busy = await suggest()
-log(busy.status === 502 && /kvot/.test(busy.data.error) && /Quota exceeded/.test(busy.data.error), '429 ger ett begripligt fel', busy.data.error)
+log(busy.status === 502 && /quota/.test(busy.data.error) && /Quota exceeded/.test(busy.data.error), '429 ger ett begripligt fel', busy.data.error)
 
 await useModel('mock-prose')
 const prose = await suggest()
-log(prose.status === 502 && /giltig JSON/.test(prose.data.error), 'svar utan JSON ger ett fel', prose.data.error)
+log(prose.status === 502 && /valid JSON/.test(prose.data.error), 'svar utan JSON ger ett fel', prose.data.error)
 
 await useModel('saknas')
 const missing = await suggest()
@@ -303,7 +303,7 @@ await useModel('mock-busy')
 await smtpDeliver('sortering@localhost', plain('Elbolaget <faktura@elbolaget.se>', 'Faktura november', 'Din faktura.').replace('MIME-Version', 'Message-ID: <november@elbolaget.se>\nMIME-Version'))
 await sleep(500)
 autoState = await nextCheck()
-log(/kvot/.test(autoState.rules[0].lastError) && (await inboxTotal()) === 8, 'fel från AI-tjänsten visas och inget flyttas', autoState.rules[0].lastError)
+log(/quota/.test(autoState.rules[0].lastError) && (await inboxTotal()) === 8, 'fel från AI-tjänsten visas och inget flyttas', autoState.rules[0].lastError)
 await useModel('mock-sorter')
 autoState = await nextCheck()
 log(autoState.rules[0].lastError === '' && autoState.log[0].subject === 'Faktura november' && (await inboxTotal()) === 7,
@@ -376,7 +376,7 @@ const askedEmpty = await api('POST', '/ai/search', { question: '  ' })
 log(askedEmpty.status === 400, 'en tom fråga avvisas', String(askedEmpty.status))
 await useModel('mock-busy')
 const askedBusy = await api('POST', '/ai/search', { question: 'fakturor' })
-log(askedBusy.status === 502 && /kvot/.test(askedBusy.data.error), 'fel från AI-tjänsten visas vid sökning', JSON.stringify(askedBusy.data))
+log(askedBusy.status === 502 && /quota/.test(askedBusy.data.error), 'fel från AI-tjänsten visas vid sökning', JSON.stringify(askedBusy.data))
 await useModel('mock-sorter')
 
 // 8. Hela mappen sorteras i bakgrunden
@@ -409,7 +409,7 @@ const twice = await startJob(jobBody)
 log(twice.status === 400, 'ett konto har bara ett jobb i taget', JSON.stringify(twice.data))
 let failing
 for (let i = 0; i < 40 && !(failing = (await jobs())[0]).lastError; i++) await sleep(500)
-log(/kvot/.test(failing.lastError) && failing.state === 'running' && failing.processed === 0 && failing.nextRunAt > Date.now() / 1000 + 600 &&
+log(/quota/.test(failing.lastError) && failing.state === 'running' && failing.processed === 0 && failing.nextRunAt > Date.now() / 1000 + 600 &&
     (await inboxTotal()) === inboxBefore, 'fel från AI-tjänsten flyttar inget, och jobbet försöker igen senare', failing.lastError)
 const paused = await api('POST', `/ai/jobs/${busyId}/pause`)
 const pausedTwice = await api('POST', `/ai/jobs/${busyId}/pause`)
@@ -486,12 +486,12 @@ log(ruleSet.status === 200 && ruleSet.data.rules.length === 1 && ruleSet.data.ru
     'en regel går att skapa', JSON.stringify(ruleSet.data.rules))
 await mockReset()
 const byRule = await suggestOne()
-log(byRule.data.suggestions[0].target === 'Ekonomi' && /Din regel/.test(byRule.data.suggestions[0].reason) && (await mockRequests()).length === 0,
+log(byRule.data.suggestions[0].target === 'Ekonomi' && /Your rule/.test(byRule.data.suggestions[0].reason) && (await mockRequests()).length === 0,
     'regeln gäller före AI:n och kostar inget AI-anrop', JSON.stringify(byRule.data.suggestions[0]))
 await saveRule({ sender: '@bredband.se', target: '' })
 await api('DELETE', `/ai/rules/${ruleSet.data.rules[0].id}`)
 const byDomain = await suggestOne()
-log(byDomain.data.suggestions[0].target === null && /ligger kvar/.test(byDomain.data.suggestions[0].reason), 'en regel för en domän kan låta mejlen ligga kvar', JSON.stringify(byDomain.data.suggestions[0]))
+log(byDomain.data.suggestions[0].target === null && /stays/.test(byDomain.data.suggestions[0].reason), 'en regel för en domän kan låta mejlen ligga kvar', JSON.stringify(byDomain.data.suggestions[0]))
 
 // Utan granskning: regeln används, men aldrig till papperskorgen
 await saveRule({ sender: '@bredband.se', target: 'Trash' })

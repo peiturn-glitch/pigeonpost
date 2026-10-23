@@ -1,10 +1,12 @@
 <script setup>
 import { onBeforeUnmount, ref } from 'vue'
+import { t } from '../i18n'
 import { signInWithGoogle } from '../oauth'
 
 const props = defineProps({
   loginHint: { type: String, default: '' },
-  label: { type: String, default: 'Logga in med Google' },
+  // Tom etikett ger standardtexten, översatt vid rendering.
+  label: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
   // Funktion som startar inloggningen; standard är inloggning för e-post.
   start: { type: Function, default: undefined },
@@ -46,11 +48,11 @@ onBeforeUnmount(cancel)
           <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
           <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
         </svg>
-        {{ signingIn ? 'Väntar på Google…' : label }}
+        {{ signingIn ? t('Waiting for Google…') : label || t('Sign in with Google') }}
       </button>
-      <button v-if="signingIn" type="button" class="btn ghost" @click="cancel">Avbryt</button>
+      <button v-if="signingIn" type="button" class="btn ghost" @click="cancel">{{ t('Cancel') }}</button>
     </div>
-    <p v-if="signingIn" class="muted small">Slutför inloggningen i fönstret som öppnades.</p>
+    <p v-if="signingIn" class="muted small">{{ t('Complete the sign-in in the window that opened.') }}</p>
     <p v-if="error" class="error-text small">{{ error }}</p>
   </div>
 </template>

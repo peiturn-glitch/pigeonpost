@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { t } from '../i18n'
 import { useMailStore } from '../store'
-import { folderLabel, isInsideFolder } from '../utils'
+import { isInsideFolder, specialFolderNames } from '../utils'
 import Icon from './Icon.vue'
 
 const props = defineProps({
@@ -16,6 +17,10 @@ const dropActive = ref(false)
 const key = computed(() => `${props.accountId}:${props.node.path}`)
 const isOpen = computed(() => store.expanded.has(key.value))
 const isCurrent = computed(() => store.current.accountId === props.accountId && store.current.folder === props.node.path)
+const label = computed(() => {
+  const use = props.node.specialUse
+  return use && specialFolderNames[use] ? t(specialFolderNames[use]) : props.node.name
+})
 const iconName = computed(() => {
   const use = props.node.specialUse
   return ['inbox', 'sent', 'drafts', 'trash', 'junk', 'archive', 'all', 'flagged'].includes(use) ? use : 'folder'
@@ -27,18 +32,18 @@ function select() {
 }
 
 function openMenu(event) {
-  const items = [{ label: 'Ny undermapp…', action: () => store.createFolder(props.accountId, props.node.path, props.node.delimiter) }]
+  const items = [{ label: t('New subfolder…'), action: () => store.createFolder(props.accountId, props.node.path, props.node.delimiter) }]
   if (!props.node.specialUse && props.node.selectable) {
-    items.push({ label: 'Byt namn…', action: () => store.renameFolder(props.accountId, props.node) })
-    items.push({ label: 'Flytta mapp…', action: () => (store.folderMoveDialog = { accountId: props.accountId, folder: props.node }) })
-    items.push({ label: 'Ta bort mapp', danger: true, action: () => store.deleteFolder(props.accountId, props.node) })
+    items.push({ label: t('Rename…'), action: () => store.renameFolder(props.accountId, props.node) })
+    items.push({ label: t('Move folder…'), action: () => (store.folderMoveDialog = { accountId: props.accountId, folder: props.node }) })
+    items.push({ label: t('Delete folder'), danger: true, action: () => store.deleteFolder(props.accountId, props.node) })
   }
   if (props.node.selectable && !['drafts', 'all', 'flagged', 'important'].includes(props.node.specialUse)) {
-    items.push({ label: 'Sortera med AI…', action: () => (store.aiDialog = { accountId: props.accountId, folder: props.node.path }) })
+    items.push({ label: t('Sort with AI…'), action: () => (store.aiDialog = { accountId: props.accountId, folder: props.node.path }) })
   }
   if (props.node.selectable && props.node.unread > 0 && isCurrent.value) {
     items.unshift({
-      label: 'Markera alla som lästa',
+      label: t('Mark all as read'),
       action: () => store.setFlag('seen', true, store.messages.filter((m) => !m.seen).map((m) => m.key)),
     })
   }
@@ -113,7 +118,7 @@ function onDrop(event) {
         <Icon v-if="node.children.length" :name="isOpen ? 'chevronDown' : 'chevronRight'" :size="12" />
       </span>
       <Icon :name="iconName" :size="15" class="folder-icon" />
-      <span class="name" :class="{ unread: node.unread > 0 }">{{ folderLabel(node) }}</span>
+      <span class="name" :class="{ unread: node.unread > 0 }">{{ label }}</span>
       <span v-if="node.unread > 0" class="badge">{{ node.unread }}</span>
     </div>
     <template v-if="isOpen">

@@ -1,6 +1,8 @@
 # PigeonPost – handbok på svenska
 
 > Det här är den utförliga dokumentationen på svenska. Installation och konfiguration i korthet finns i [README.md](../README.md) på engelska.
+>
+> Gränssnittet är på engelska som standard; svenska väljs på inloggningssidan eller under Layout-inställningarna (valet sparas i webbläsaren). Handbokens skärmtexter anges på svenska.
 
 En webbaserad e-postklient i Thunderbirds anda (tidigare Brevduva; containrar, miljövariabler och API-headern `X-Brevduva` har kvar det gamla namnet). Backenden är skriven i C++20 och frontenden i Vue 3. Appen körs i en Docker-container och sparar användare och konton i MariaDB, som startas i en egen container.
 

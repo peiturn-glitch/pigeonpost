@@ -31,16 +31,16 @@ Auth::Auth(Database& db) : db_(db), dummyHash_(crypto::hashPassword(crypto::toHe
 }
 
 void Auth::validateUsername(const std::string& username) {
-    if (username.empty() || username.size() > 64) throw BadRequest("Användarnamnet måste vara 1–64 tecken");
+    if (username.empty() || username.size() > 64) throw BadRequest("The username must be 1–64 characters");
     bool ok = std::all_of(username.begin(), username.end(), [](unsigned char c) {
         return std::isalnum(c) || c == '.' || c == '_' || c == '-' || c == '@';
     });
-    if (!ok) throw BadRequest("Användarnamnet får bara innehålla a–z, 0–9 och . _ - @");
+    if (!ok) throw BadRequest("The username may only contain a–z, 0–9 and . _ - @");
 }
 
 void Auth::validatePassword(const std::string& password) {
-    if (password.size() < 8) throw BadRequest("Lösenordet måste vara minst 8 tecken");
-    if (password.size() > 1024) throw BadRequest("Lösenordet är för långt");
+    if (password.size() < 8) throw BadRequest("The password must be at least 8 characters");
+    if (password.size() > 1024) throw BadRequest("The password is too long");
 }
 
 bool Auth::limited(const std::string& key) {
@@ -75,7 +75,7 @@ std::optional<User> Auth::login(const std::string& username, const std::string& 
     {
         std::lock_guard lock(mutex_);
         if (limited(userKey) || limited(ipKey)) {
-            throw TooManyRequests("För många misslyckade inloggningar. Försök igen om en stund.");
+            throw TooManyRequests("Too many failed login attempts. Try again in a little while.");
         }
     }
 

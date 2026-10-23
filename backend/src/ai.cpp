@@ -48,15 +48,15 @@ std::string errorDetail(const std::string& body) {
 std::string messageText(const json& response) {
     if (!response.is_object() || !response.contains("choices") || !response["choices"].is_array() ||
         response["choices"].empty()) {
-        throw AiError("AI-tjänsten svarade utan innehåll");
+        throw AiError("The AI service returned no content");
     }
     const json& choice = response["choices"].front();
     if (choice.value("finish_reason", "") == "length") {
-        throw AiError("AI-tjänstens svar klipptes av. Sortera färre meddelanden åt gången.");
+        throw AiError("The AI service's reply was cut off. Sort fewer messages at a time.");
     }
-    if (!choice.contains("message") || !choice["message"].is_object()) throw AiError("AI-tjänsten svarade utan innehåll");
+    if (!choice.contains("message") || !choice["message"].is_object()) throw AiError("The AI service returned no content");
     const json& message = choice["message"];
-    if (!message.contains("content")) throw AiError("AI-tjänsten svarade utan innehåll");
+    if (!message.contains("content")) throw AiError("The AI service returned no content");
     const json& content = message["content"];
     if (content.is_string()) return content.get<std::string>();
     std::string text;
@@ -65,7 +65,7 @@ std::string messageText(const json& response) {
             if (part.is_object() && part.contains("text") && part["text"].is_string()) text += part["text"].get<std::string>();
         }
     }
-    if (text.empty()) throw AiError("AI-tjänsten svarade utan innehåll");
+    if (text.empty()) throw AiError("The AI service returned no content");
     return text;
 }
 
@@ -79,7 +79,7 @@ json extractJson(const std::string& text) {
             if (!j.is_discarded()) return j;
         }
     }
-    throw AiError("AI-tjänsten svarade inte med giltig JSON");
+    throw AiError("The AI service did not return valid JSON");
 }
 
 }  // namespace
@@ -92,7 +92,7 @@ AiClient::AiClient(std::string baseUrl, std::string apiKey, std::string model)
 AiClient::Response AiClient::send(const std::string& method, const std::string& path, const std::string& body,
                                   long timeoutSeconds) {
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), &curl_easy_cleanup);
-    if (!curl) throw std::runtime_error("curl_easy_init misslyckades");
+    if (!curl) throw std::runtime_error("curl_easy_init failed");
     Response res;
     char errorBuffer[CURL_ERROR_SIZE] = {0};
     CURL* c = curl.get();
@@ -130,19 +130,19 @@ AiClient::Response AiClient::send(const std::string& method, const std::string& 
 }
 
 void AiClient::fail(const Response& res) {
-    if (res.status == 0) throw AiError("Kunde inte nå AI-tjänsten: " + res.error);
+    if (res.status == 0) throw AiError("Could not reach the AI service: " + res.error);
     std::string detail = errorDetail(res.body);
     std::string message;
     // Gemini svarar 400 i stället för 401 på en ogiltig nyckel.
     bool badKey = res.status == 400 && detail.find("API key") != std::string::npos;
     if (res.status == 401 || res.status == 403 || badKey) {
-        message = "AI-tjänsten godkände inte API-nyckeln";
+        message = "The AI service rejected the API key";
     } else if (res.status == 404) {
-        message = "AI-tjänsten känner inte till modellen \"" + model_ + "\"";
+        message = "The AI service does not know the model \"" + model_ + "\"";
     } else if (res.status == 429) {
-        message = "AI-tjänstens gräns för antal anrop eller kvot är nådd. Försök igen om en stund";
+        message = "The AI service's rate limit or quota has been reached. Try again in a little while";
     } else {
-        message = "AI-tjänsten svarade med fel " + std::to_string(res.status);
+        message = "The AI service responded with error " + std::to_string(res.status);
     }
     throw AiError(detail.empty() ? message : message + ": " + detail);
 }
@@ -172,14 +172,14 @@ json AiClient::completeJson(const std::string& system, const std::string& user) 
     if (res.status < 200 || res.status >= 300) fail(res);
 
     json response = json::parse(res.body, nullptr, false);
-    if (response.is_discarded()) throw AiError("AI-tjänsten svarade inte med giltig JSON");
+    if (response.is_discarded()) throw AiError("The AI service did not return valid JSON");
     return extractJson(messageText(response));
 }
 
 std::vector<std::string> AiClient::listModels() {
     Response res = send("GET", "/models", {}, kListTimeout);
     if (res.status < 200 || res.status >= 300) {
-        if (res.status == 404) throw AiError("Adressen svarar inte som ett OpenAI-kompatibelt API (hittar inte /models)");
+        if (res.status == 404) throw AiError("The address does not respond like an OpenAI-compatible API (/models not found)");
         fail(res);
     }
     json response = json::parse(res.body, nullptr, false);

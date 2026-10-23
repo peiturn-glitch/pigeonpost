@@ -428,7 +428,7 @@ public:
         // Thunderbird skriver prefs.js sorterad; gör likadant så att filen känns igen.
         std::sort(lines_.begin(), lines_.end());
         std::string out = "// Mozilla User Preferences\n\n"
-                          "// Exporterad från PigeonPost. Lösenord ingår inte; Thunderbird frågar efter dem.\n\n";
+                          "// Exported from PigeonPost. Passwords are not included; Thunderbird will ask for them.\n\n";
         for (const auto& line : lines_) out += line + "\n";
         return out;
     }
@@ -460,10 +460,10 @@ json importPreview(const Prefs& prefs, const std::vector<Account>& existing) {
 
         if (type == "none") continue;  // Lokala mappar; inget att importera.
         if (type != "imap") {
-            std::string reason = type == "pop3"  ? "POP3-konton stöds inte, bara IMAP"
-                                 : type == "nntp" ? "Nyhetsgrupper stöds inte"
-                                 : type == "rss"  ? "RSS-flöden stöds inte"
-                                                  : "Kontotypen stöds inte";
+            std::string reason = type == "pop3"  ? "POP3 accounts are not supported, only IMAP"
+                                 : type == "nntp" ? "Newsgroups are not supported"
+                                 : type == "rss"  ? "RSS feeds are not supported"
+                                                  : "The account type is not supported";
             skipped.push_back({{"name", accountName}, {"type", type}, {"reason", reason}});
             continue;
         }
@@ -477,12 +477,12 @@ json importPreview(const Prefs& prefs, const std::vector<Account>& existing) {
         bool isGoogle = lowerHost == "imap.gmail.com" || lowerHost == "imap.googlemail.com";
         bool oauth2 = r.num(sp + "authMethod", kAuthPasswordCleartext) == kAuthOAuth2;
         if (oauth2 && !isGoogle) {
-            warnings.push_back("Kontot använder OAuth2 i Thunderbird, vilket bara stöds för Gmail här. Ange ett app-lösenord.");
+            warnings.push_back("The account uses OAuth2 in Thunderbird, which is only supported for Gmail here. Enter an app password.");
         }
 
         auto identityKeys = splitList(r.str("mail.account." + accountKey + ".identities"));
         if (identityKeys.empty()) {
-            skipped.push_back({{"name", accountName}, {"type", type}, {"reason", "Kontot saknar identitet"}});
+            skipped.push_back({{"name", accountName}, {"type", type}, {"reason", "The account has no identity"}});
             continue;
         }
 
@@ -497,11 +497,11 @@ json importPreview(const Prefs& prefs, const std::vector<Account>& existing) {
             smtp.host = "smtp." + domain;
             smtp.port = 587;
             smtp.security = "starttls";
-            warnings.push_back("Ingen utgående server hittades; gissade " + smtp.host + ". Kontrollera efter importen.");
+            warnings.push_back("No outgoing server was found; guessed " + smtp.host + ". Check it after the import.");
         }
-        if (smtp.noAuth) warnings.push_back("Den utgående servern kräver ingen inloggning i Thunderbird, men här används kontots inloggning.");
+        if (smtp.noAuth) warnings.push_back("The outgoing server requires no sign-in in Thunderbird, but here the account's sign-in is used.");
         if (r.boolean(ip + "attach_signature", false)) {
-            warnings.push_back("Signaturen hämtas från en fil i Thunderbird och kunde inte importeras.");
+            warnings.push_back("The signature is read from a file in Thunderbird and could not be imported.");
         }
 
         json identities = json::array();

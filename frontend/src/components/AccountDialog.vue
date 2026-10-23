@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { api } from '../api'
 import { useBulkAddresses } from '../bulkAddresses'
+import { t } from '../i18n'
 import { isGoogleMailAddress, isGoogleMailHost } from '../oauth'
 import { useMailStore } from '../store'
 import { defaultPorts, mailPresets as presets, presetForEmail } from '../utils'
@@ -24,7 +25,7 @@ function editIdentity(identity = null) {
 }
 
 async function removeIdentity(identity) {
-  if (!window.confirm(`Ta bort avsändaren ${identity.email}?`)) return
+  if (!window.confirm(t('Remove the sender {email}?', { email: identity.email }))) return
   try {
     await api.deleteIdentity(existing.id, identity.id)
     await store.loadAccounts()
@@ -166,7 +167,7 @@ async function addAccounts(options) {
   if (!created.length) return
   await store.loadAccounts()
   await Promise.all(created.map((a) => store.loadFolders(a.id)))
-  store.notify(created.length === 1 ? 'Kontot lades till' : `${created.length} konton lades till`)
+  store.notify(created.length === 1 ? t('Account added') : t('{n} accounts were added', { n: created.length }))
   if (!store.expanded.has(`acc:${created[0].id}`)) store.toggleExpanded(`acc:${created[0].id}`)
   if (!bulkFailures.value.length) {
     await store.selectFolder(created[0].id, 'INBOX')
@@ -215,7 +216,7 @@ async function save(skipTest = false) {
   error.value = ''
   try {
     await store.saveAccount(body(skipTest))
-    store.notify(isNew ? 'Kontot lades till' : 'Kontot sparades')
+    store.notify(isNew ? t('Account added') : t('Account saved'))
     store.accountDialog = null
   } catch (e) {
     error.value = e.message
@@ -226,7 +227,7 @@ async function save(skipTest = false) {
 }
 
 async function remove() {
-  if (!window.confirm(`Ta bort kontot ${form.email} från PigeonPost? E-posten på servern påverkas inte.`)) return
+  if (!window.confirm(t('Remove the account {email} from PigeonPost? Mail on the server is not affected.', { email: form.email }))) return
   busy.value = true
   try {
     await store.removeAccount(form.id)
@@ -243,8 +244,8 @@ async function remove() {
   <div class="modal-backdrop">
     <form class="modal account" @submit.prevent="bulk.enabled ? addAccounts() : save(false)">
       <div class="modal-header">
-        <h2>{{ isNew ? 'Lägg till e-postkonto' : 'Kontoinställningar' }}</h2>
-        <button type="button" class="btn ghost" title="Stäng" @click="store.accountDialog = null"><Icon name="close" /></button>
+        <h2>{{ isNew ? t('Add email account') : t('Account settings') }}</h2>
+        <button type="button" class="btn ghost" :title="t('Close')" @click="store.accountDialog = null"><Icon name="close" /></button>
       </div>
 
       <div class="content">
@@ -252,42 +253,42 @@ async function remove() {
           <label v-if="isNew" class="check bulk-toggle">
             <input v-model="bulk.enabled" type="checkbox" @change="onBulkToggle" />
             <span>
-              Flera adresser med samma inställningar
-              <span class="muted">– varje adress blir ett eget konto</span>
+              {{ t('Several addresses with the same settings') }}
+              <span class="muted">{{ t('– each address becomes its own account') }}</span>
             </span>
           </label>
 
           <div class="grid">
-            <label for="acc-name">Ditt namn</label>
-            <input id="acc-name" v-model="form.name" class="input" placeholder="Förnamn Efternamn" />
+            <label for="acc-name">{{ t('Your name') }}</label>
+            <input id="acc-name" v-model="form.name" class="input" :placeholder="t('First and last name')" />
 
             <template v-if="bulk.enabled">
-              <label for="acc-emails">E-postadresser</label>
+              <label for="acc-emails">{{ t('Email addresses') }}</label>
               <BulkAddresses :state="bulk" :parsed="bulkParsed" input-id="acc-emails" @blur="guessFromBulk">
-                <template #hint>Namnet ovan används för de adresser som saknar eget namn.</template>
+                <template #hint>{{ t('The name above is used for addresses without a name of their own.') }}</template>
               </BulkAddresses>
 
-              <span class="label">Användarnamn</span>
+              <span class="label">{{ t('Username') }}</span>
               <div class="auth-choice">
                 <label class="radio">
                   <input v-model="bulk.usernameMode" type="radio" value="address" />
-                  Adressen är användarnamn för varje konto
+                  {{ t('The address is the username for each account') }}
                 </label>
                 <label class="radio">
                   <input v-model="bulk.usernameMode" type="radio" value="same" />
-                  Samma användarnamn för alla
+                  {{ t('Same username for all') }}
                 </label>
                 <input
                   v-if="bulk.usernameMode === 'same'"
                   v-model="form.username"
                   class="input"
-                  placeholder="Användarnamn"
+                  :placeholder="t('Username')"
                   required
                   @input="usernameTouched = true"
                 />
               </div>
 
-              <label for="acc-bulkpass">Lösenord</label>
+              <label for="acc-bulkpass">{{ t('Password') }}</label>
               <input
                 id="acc-bulkpass"
                 v-model="form.password"
@@ -299,54 +300,53 @@ async function remove() {
             </template>
 
             <template v-else>
-            <label for="acc-email">E-postadress</label>
+            <label for="acc-email">{{ t('Email address') }}</label>
             <input id="acc-email" v-model="form.email" class="input" type="email" required @blur="guessFromEmail" />
 
             <template v-if="isGmail || useGoogle">
-              <span class="label">Inloggning</span>
+              <span class="label">{{ t('Sign-in') }}</span>
               <div class="auth-choice">
                 <label class="radio">
                   <input v-model="form.authType" type="radio" value="oauth-google" :disabled="!googleConfigured && !wasGoogle" />
-                  Logga in med Google <span class="muted">(rekommenderas, inget app-lösenord)</span>
+                  {{ t('Sign in with Google') }} <span class="muted">{{ t('(recommended, no app password needed)') }}</span>
                 </label>
                 <label class="radio">
                   <input v-model="form.authType" type="radio" value="password" />
-                  Lösenord eller app-lösenord
+                  {{ t('Password or app password') }}
                 </label>
                 <p v-if="!googleConfigured" class="muted small">
-                  Google-inloggning är inte aktiverad på servern. Administratören aktiverar den med GOOGLE_CLIENT_ID och
-                  GOOGLE_CLIENT_SECRET (se README).
+                  {{ t('Google sign-in is not enabled on the server. The administrator enables it with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (see README).') }}
                 </p>
               </div>
             </template>
 
             <template v-if="useGoogle">
-              <span class="label">Google-konto</span>
+              <span class="label">{{ t('Google account') }}</span>
               <div class="google-account">
                 <p v-if="googleEmail" class="signed-in">
                   <span :class="oauthState ? 'ok' : ''">✓</span>
-                  {{ oauthState ? 'Inloggad som' : 'Ansluten som' }} <strong>{{ googleEmail }}</strong>
+                  {{ oauthState ? t('Signed in as') : t('Connected as') }} <strong>{{ googleEmail }}</strong>
                 </p>
                 <GoogleSignIn
                   v-if="googleConfigured"
                   :login-hint="form.email"
-                  :label="googleEmail ? 'Logga in igen' : 'Logga in med Google'"
+                  :label="googleEmail ? t('Sign in again') : t('Sign in with Google')"
                   :disabled="busy"
                   @signed-in="onGoogleSignedIn"
                 />
               </div>
             </template>
             <template v-else>
-              <label for="acc-user">Användarnamn</label>
+              <label for="acc-user">{{ t('Username') }}</label>
               <input id="acc-user" v-model="form.username" class="input" required @input="usernameTouched = true" />
-              <label for="acc-pass">Lösenord</label>
+              <label for="acc-pass">{{ t('Password') }}</label>
               <input
                 id="acc-pass"
                 v-model="form.password"
                 class="input"
                 type="password"
                 autocomplete="new-password"
-                :placeholder="isNew || wasGoogle ? '' : 'Oförändrat'"
+                :placeholder="isNew || wasGoogle ? '' : t('Unchanged')"
                 :required="isNew || wasGoogle"
               />
             </template>
@@ -356,110 +356,109 @@ async function remove() {
           <template v-if="bulk.enabled">
             <label class="check">
               <input v-model="bulk.test" type="checkbox" />
-              Testa inloggningen för varje adress (ta bort bocken om servern spärrar många inloggningar i rad)
+              {{ t('Test the sign-in for each address (uncheck if the server blocks many sign-ins in a row)') }}
             </label>
-            <BulkStatus :entries="bulk.entries" exists-text="Finns redan som konto" />
+            <BulkStatus :entries="bulk.entries" :exists-text="t('Already exists as an account')" />
             <p class="muted small">
-              Är adresserna alias till samma brevlåda är det oftast bättre att lägga till dem som extra avsändare i ett
-              konto, under <strong>Fler avsändare</strong>.
+              {{ t('If the addresses are aliases of the same mailbox, it is usually better to add them as extra senders in one account, under') }}
+              <strong>{{ t('More senders') }}</strong>.
             </p>
           </template>
           <p v-if="!useGoogle" class="hint muted">
-            Gmail, iCloud och Yahoo kräver ett app-lösenord när tvåstegsverifiering är aktiverad.
+            {{ t('Gmail, iCloud and Yahoo require an app password when two-step verification is enabled.') }}
           </p>
         </section>
 
         <section>
           <div class="section-title">
-            <h3>Servrar</h3>
+            <h3>{{ t('Servers') }}</h3>
             <select class="input preset" @change="applyPreset">
-              <option value="">Förinställning…</option>
+              <option value="">{{ t('Preset…') }}</option>
               <option value="gmail">Gmail</option>
               <option value="outlook">Outlook / Microsoft 365</option>
               <option value="icloud">iCloud</option>
               <option value="yahoo">Yahoo</option>
-              <option value="greenmail">Testserver (docker compose --profile dev)</option>
+              <option value="greenmail">{{ t('Test server (docker compose --profile dev)') }}</option>
             </select>
           </div>
           <div class="servers">
             <span />
-            <span class="muted">Server</span>
-            <span class="muted">Port</span>
-            <span class="muted">Säkerhet</span>
+            <span class="muted">{{ t('Server') }}</span>
+            <span class="muted">{{ t('Port') }}</span>
+            <span class="muted">{{ t('Security') }}</span>
 
-            <label>Inkommande (IMAP)</label>
+            <label>{{ t('Incoming (IMAP)') }}</label>
             <input v-model="form.imapHost" class="input" required />
             <input v-model="form.imapPort" class="input" type="number" min="1" max="65535" required />
             <select v-model="form.imapSecurity" class="input" @change="onSecurityChange('imap')">
               <option value="tls">SSL/TLS</option>
               <option value="starttls">STARTTLS</option>
-              <option value="none">Ingen</option>
+              <option value="none">{{ t('None') }}</option>
             </select>
 
-            <label>Utgående (SMTP)</label>
+            <label>{{ t('Outgoing (SMTP)') }}</label>
             <input v-model="form.smtpHost" class="input" required />
             <input v-model="form.smtpPort" class="input" type="number" min="1" max="65535" required />
             <select v-model="form.smtpSecurity" class="input" @change="onSecurityChange('smtp')">
               <option value="tls">SSL/TLS</option>
               <option value="starttls">STARTTLS</option>
-              <option value="none">Ingen</option>
+              <option value="none">{{ t('None') }}</option>
             </select>
           </div>
           <div class="grid">
-            <label for="acc-smtpuser">SMTP-användarnamn</label>
-            <input id="acc-smtpuser" v-model="form.smtpUsername" class="input" placeholder="Samma som ovan" />
+            <label for="acc-smtpuser">{{ t('SMTP username') }}</label>
+            <input id="acc-smtpuser" v-model="form.smtpUsername" class="input" :placeholder="t('Same as above')" />
           </div>
           <label class="check">
             <input v-model="form.tlsVerify" type="checkbox" />
-            Verifiera servercertifikat (stäng bara av för egna servrar med självsignerade certifikat)
+            {{ t('Verify server certificate (only turn off for your own servers with self-signed certificates)') }}
           </label>
         </section>
 
         <section>
-          <h3>Signatur</h3>
+          <h3>{{ t('Signature') }}</h3>
           <SignatureEditor v-model:text="form.signature" v-model:html="form.signatureHtml" />
         </section>
 
         <section>
           <div class="section-title">
-            <h3>Fler avsändare</h3>
-            <button v-if="!isNew" type="button" class="btn" @click="editIdentity()">Lägg till avsändare</button>
+            <h3>{{ t('More senders') }}</h3>
+            <button v-if="!isNew" type="button" class="btn" @click="editIdentity()">{{ t('Add sender') }}</button>
           </div>
-          <p v-if="isNew" class="muted small">Spara kontot först. Sedan kan du lägga till fler adresser och SMTP-servrar att skicka från.</p>
+          <p v-if="isNew" class="muted small">{{ t('Save the account first. Then you can add more addresses and SMTP servers to send from.') }}</p>
           <p v-else-if="!identities.length" class="muted small">
-            Lägg till andra adresser att skicka som, till exempel ett alias eller en adress med egen SMTP-server.
-            Du väljer avsändare i Från-fältet när du skriver.
+            {{ t('Add other addresses to send as, for example an alias or an address with its own SMTP server. You choose the sender in the From field when writing.') }}
           </p>
           <ul v-else class="identities">
             <li v-for="i in identities" :key="i.id">
               <div class="identity-text">
                 <strong>{{ i.name }}</strong> <span class="muted">&lt;{{ i.email }}&gt;</span>
                 <div class="muted small">
-                  {{ i.useAccountSmtp ? `Skickas via kontots server (${form.smtpHost})` : `Egen SMTP-server: ${i.smtpHost}:${i.smtpPort}` }}
+                  {{ i.useAccountSmtp ? t('Sent via the account server ({host})', { host: form.smtpHost }) : t('Own SMTP server: {host}:{port}', { host: i.smtpHost, port: i.smtpPort }) }}
                 </div>
               </div>
-              <button type="button" class="btn" @click="editIdentity(i)">Redigera</button>
-              <button type="button" class="btn danger" @click="removeIdentity(i)">Ta bort</button>
+              <button type="button" class="btn" @click="editIdentity(i)">{{ t('Edit') }}</button>
+              <button type="button" class="btn danger" @click="removeIdentity(i)">{{ t('Remove') }}</button>
             </li>
           </ul>
         </section>
 
         <div v-if="testResult" class="test">
           <p :class="testResult.imap.ok ? 'ok' : 'error-text'">
-            IMAP: {{ testResult.imap.ok ? 'anslutningen fungerar' : testResult.imap.error }}
+            IMAP: {{ testResult.imap.ok ? t('connection works') : testResult.imap.error }}
           </p>
           <p :class="testResult.smtp.ok ? 'ok' : 'error-text'">
-            SMTP: {{ testResult.smtp.ok ? 'anslutningen fungerar' : testResult.smtp.error }}
+            SMTP: {{ testResult.smtp.ok ? t('connection works') : testResult.smtp.error }}
           </p>
         </div>
         <p v-if="error" class="error-text">{{ error }}</p>
       </div>
 
       <div class="modal-footer">
-        <button v-if="!isNew" type="button" class="btn danger" :disabled="busy" @click="remove">Ta bort konto</button>
+        <button v-if="!isNew" type="button" class="btn danger" :disabled="busy" @click="remove">{{ t('Remove account') }}</button>
         <div class="spacer" />
         <button type="button" class="btn" :disabled="busy || !canSubmit" @click="test">
-          {{ bulk.enabled ? 'Testa första adressen' : 'Testa anslutning' }}
+          {{ bulk.enabled ? t('Test first address') : t('Test connection') }}
         </button>
         <template v-if="bulk.enabled">
           <button
@@ -469,18 +468,18 @@ async function remove() {
             :disabled="busy"
             @click="addAccounts({ skipTest: true, onlyFailed: true })"
           >
-            Lägg till de misslyckade ändå
+            {{ t('Add the failed ones anyway') }}
           </button>
           <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
-            {{ busy ? 'Lägger till…' : `Lägg till ${bulkPending.length} ${bulkPending.length === 1 ? 'konto' : 'konton'}` }}
+            {{ busy ? t('Adding…') : bulkPending.length === 1 ? t('Add 1 account') : t('Add {n} accounts', { n: bulkPending.length }) }}
           </button>
         </template>
         <template v-else>
           <button v-if="testResult && (!testResult.imap.ok || !testResult.smtp.ok)" type="button" class="btn" :disabled="busy" @click="save(true)">
-            Spara ändå
+            {{ t('Save anyway') }}
           </button>
           <button type="submit" class="btn primary" :disabled="busy || !canSubmit">
-            {{ busy ? 'Kontrollerar…' : isNew ? 'Lägg till' : 'Spara' }}
+            {{ busy ? t('Checking…') : isNew ? t('Add') : t('Save') }}
           </button>
         </template>
       </div>

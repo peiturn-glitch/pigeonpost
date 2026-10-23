@@ -177,12 +177,12 @@ void addAddresses(GMimeMessage* msg, GMimeAddressType type, const std::string& i
         return;
     }
     InternetAddressList* parsed = internet_address_list_parse(nullptr, input.c_str());
-    if (!parsed) throw BadRequest("Ogiltig adress: " + input);
+    if (!parsed) throw BadRequest("Invalid address: " + input);
     GPtr<InternetAddressList> guard(parsed);
     for (const auto& addr : addressesOf(parsed)) {
         std::size_t at = addr.find('@');
         if (at == std::string::npos || at == 0 || at + 1 == addr.size()) {
-            throw BadRequest("Ogiltig adress: " + addr);
+            throw BadRequest("Invalid address: " + addr);
         }
         recipients.push_back(addr);
     }
@@ -343,7 +343,7 @@ std::int64_t parseDate(const std::string& text) {
 ParsedMessage parseMessage(const std::string& raw, bool embedInlineImages) {
     ParsedMessage out;
     auto msg = parse(raw);
-    if (!msg) throw MailServerError("Meddelandet kunde inte tolkas");
+    if (!msg) throw MailServerError("The message could not be parsed");
 
     out.subject = safe(g_mime_message_get_subject(msg.get()));
     collectAddresses(g_mime_message_get_from(msg.get()), out.from);

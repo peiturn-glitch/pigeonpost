@@ -225,7 +225,7 @@ public:
     }
 
     void warn(const std::string& text) {
-        std::cerr << "[backup] körning " << run_.id << ": " << text << "\n";
+        std::cerr << "[backup] run " << run_.id << ": " << text << "\n";
         ++progress_.warningCount;
         if (progress_.warnings.size() < kMaxWarnings) progress_.warnings.push_back(text);
     }
@@ -237,7 +237,7 @@ public:
         try {
             s_.db_.setBackupRunProgress(run_.id, progress_.toJson().dump(-1, ' ', false, json::error_handler_t::replace));
         } catch (const std::exception& e) {
-            std::cerr << "[backup] kunde inte spara förloppet: " << e.what() << "\n";
+            std::cerr << "[backup] could not save progress: " << e.what() << "\n";
         }
     }
 
@@ -250,7 +250,7 @@ public:
                 return fn();
             } catch (const NetError& e) {
                 if (attempt >= kNetAttempts) throw;
-                std::cerr << "[backup] körning " << run_.id << ": " << e.what() << "; försöker igen\n";
+                std::cerr << "[backup] run " << run_.id << ": " << e.what() << "; retrying\n";
                 for (int i = 0; i < attempt * 5; ++i) {
                     checkCancel();
                     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -304,7 +304,7 @@ public:
         auto headers = mime::parseHeaders(m.body, m.internalDate);
         char uid[16];
         std::snprintf(uid, sizeof(uid), "%06u", m.uid);
-        std::string subject = headers.subject.empty() ? "(inget ämne)" : headers.subject;
+        std::string subject = headers.subject.empty() ? "(no subject)" : headers.subject;
         std::string name = dir_ + "/" + uid + " " + safeName(subject, 80) + ".eml";
         zip_.add(name, raw, headers.date > 0 ? static_cast<std::time_t>(headers.date) : std::time(nullptr));
 
@@ -392,7 +392,7 @@ public:
             for (const auto& m : existing) keys_.insert(messageKey(m));
             return true;
         } catch (const MailServerError& e) {
-            r_.warn("Mappen " + folder.path + " kopierades inte: " + e.what());
+            r_.warn("Folder " + folder.path + " was not copied: " + e.what());
             return false;
         }
     }
@@ -409,7 +409,7 @@ public:
             return WriteResult::Stored;
         } catch (const MailServerError& e) {
             std::string subject = mime::parseHeaders(m.body, m.internalDate).subject;
-            r_.warn("Meddelandet \"" + subject + "\" kunde inte sparas i " + path_ + ": " + e.what());
+            r_.warn("Message \"" + subject + "\" could not be saved in " + path_ + ": " + e.what());
             return WriteResult::Failed;
         }
     }
@@ -480,7 +480,7 @@ json manifestHeader(const Account& source, std::int64_t createdAt) {
 
 Account BackupRunner::ownedAccount(long long id, const std::string& role) {
     auto account = s_.db_.getAccount(id);
-    if (!account || account->userId != run_.userId) throw MailServerError(role + " finns inte längre");
+    if (!account || account->userId != run_.userId) throw MailServerError(role + " no longer exists");
     return *account;
 }
 
@@ -528,7 +528,7 @@ void BackupRunner::copy(const Account& source, const std::set<std::string>& excl
                 },
                 connect);
         } catch (const MailServerError& e) {
-            warn("Mappen " + folder.path + " hoppades över: " + e.what());
+            warn("Folder " + folder.path + " was skipped: " + e.what());
             progress_.messagesDone += folder.total;
             ++progress_.foldersDone;
             continue;
@@ -583,7 +583,7 @@ void BackupRunner::copy(const Account& source, const std::set<std::string>& excl
                     try {
                         fetch({uid});
                     } catch (const MailServerError& single) {
-                        warn("Meddelande " + std::to_string(uid) + " i " + folder.path + " kunde inte hämtas: " +
+                        warn("Message " + std::to_string(uid) + " in " + folder.path + " could not be fetched: " +
                              single.what());
                     }
                 }
@@ -640,25 +640,25 @@ void BackupRunner::toZip(const Account& source, const std::set<std::string>& exc
     run_.filePath = path;
     run_.expiresAt = now() + kZipKeepSeconds;
     tempPath_.clear();
-    run_.message = std::to_string(progress_.copied) + " meddelanden från " + std::to_string(progress_.foldersDone) +
-                   " mappar. Filen kan laddas ned i 7 dagar.";
+    run_.message = std::to_string(progress_.copied) + " messages from " + std::to_string(progress_.foldersDone) +
+                   " folders. The file can be downloaded for 7 days.";
 }
 
 void BackupRunner::toImap(const Account& source, const std::set<std::string>& excluded, const json& destination) {
-    Account target = ownedAccount(destination.at("accountId").get<long long>(), "Målkontot");
+    Account target = ownedAccount(destination.at("accountId").get<long long>(), "The target account");
     ImapSink sink(*this, target, destination.value("folder", ""));
     progress_.phase = "connecting";
     report(true);
     sink.open();
     copy(source, excluded, sink);
     sink.close();
-    run_.message = std::to_string(progress_.copied) + " meddelanden kopierades till " + target.email + ", " +
-                   std::to_string(progress_.skipped) + " fanns redan.";
+    run_.message = std::to_string(progress_.copied) + " messages were copied to " + target.email + ", " +
+                   std::to_string(progress_.skipped) + " already existed.";
 }
 
 void BackupRunner::toDrive(const Account& source, const std::set<std::string>& excluded, const json& destination) {
     auto connection = s_.db_.getDriveConnection(destination.at("connectionId").get<long long>());
-    if (!connection || connection->userId != run_.userId) throw MailServerError("Google Drive-kopplingen finns inte längre");
+    if (!connection || connection->userId != run_.userId) throw MailServerError("The Google Drive connection no longer exists");
     GoogleDrive drive(s_.config_.googleApiUrl, [&](bool forceRefresh) {
         if (forceRefresh) s_.oauth_.forgetDrive(connection->id);
         return s_.oauth_.accessToken(*connection);
@@ -709,19 +709,19 @@ void BackupRunner::toDrive(const Account& source, const std::set<std::string>& e
                 ++removed;
             }
         } catch (const std::exception& e) {
-            warn(std::string("Äldre backuper i Google Drive kunde inte tas bort: ") + e.what());
+            warn(std::string("Older backups in Google Drive could not be deleted: ") + e.what());
         }
     }
-    run_.message = std::to_string(progress_.copied) + " meddelanden sparades i Google Drive (" + connection->email +
-                   ") som " + name + "." +
-                   (removed ? " " + std::to_string(removed) + " äldre backup" + (removed == 1 ? "" : "er") + " togs bort."
+    run_.message = std::to_string(progress_.copied) + " messages were saved to Google Drive (" + connection->email +
+                   ") as " + name + "." +
+                   (removed ? " " + std::to_string(removed) + " older backup" + (removed == 1 ? "" : "s") + " deleted."
                             : "");
 }
 
 void BackupRunner::execute() {
     try {
         json config = json::parse(run_.config);
-        Account source = ownedAccount(config.at("sourceAccountId").get<long long>(), "Källkontot");
+        Account source = ownedAccount(config.at("sourceAccountId").get<long long>(), "The source account");
         std::set<std::string> excluded;
         for (const auto& f : config.value("excludeFolders", json::array())) excluded.insert(f.get<std::string>());
         const json& destination = config.at("destination");
@@ -733,18 +733,18 @@ void BackupRunner::execute() {
         } else if (type == "gdrive") {
             toDrive(source, excluded, destination);
         } else {
-            throw std::runtime_error("Okänt backupmål: " + type);
+            throw std::runtime_error("Unknown backup destination: " + type);
         }
         run_.status = "done";
         progress_.phase = "done";
         if (progress_.warningCount) {
-            run_.message += " " + std::to_string(progress_.warningCount) + " varning" +
-                            (progress_.warningCount == 1 ? "" : "ar") + ".";
+            run_.message += " " + std::to_string(progress_.warningCount) + " warning" +
+                            (progress_.warningCount == 1 ? "" : "s") + ".";
         }
     } catch (const Cancelled&) {
         std::lock_guard lock(s_.mutex_);
         run_.status = "cancelled";
-        run_.message = s_.stopping_ ? "Avbröts eftersom servern stängdes av" : "Avbruten";
+        run_.message = s_.stopping_ ? "Cancelled because the server was shut down" : "Cancelled";
     } catch (const std::exception& e) {
         run_.status = "failed";
         run_.message = e.what();
@@ -807,7 +807,7 @@ void BackupService::worker() {
         try {
             run = db_.claimQueuedBackupRun(now());
         } catch (const std::exception& e) {
-            std::cerr << "[backup] kunde inte hämta nästa körning: " << e.what() << "\n";
+            std::cerr << "[backup] could not fetch the next run: " << e.what() << "\n";
         }
         if (run) {
             execute(std::move(*run));
@@ -825,18 +825,18 @@ void BackupService::execute(BackupRun run) {
         if (stopping_ || cancelRequested_.erase(run.id)) *flag = true;
         running_[run.id] = flag;
     }
-    std::cout << "[backup] startar körning " << run.id << std::endl;
+    std::cout << "[backup] starting run " << run.id << std::endl;
     BackupRunner runner(*this, run, *flag);
     try {
         runner.execute();
     } catch (const std::exception& e) {
-        std::cerr << "[backup] körning " << run.id << " kunde inte avslutas: " << e.what() << "\n";
+        std::cerr << "[backup] run " << run.id << " could not be finished: " << e.what() << "\n";
     }
     {
         std::lock_guard lock(mutex_);
         running_.erase(run.id);
     }
-    std::cout << "[backup] körning " << run.id << ": " << run.status << " " << run.message << std::endl;
+    std::cout << "[backup] run " << run.id << ": " << run.status << " " << run.message << std::endl;
 }
 
 void BackupService::scheduler() {
@@ -850,14 +850,14 @@ void BackupService::scheduler() {
         try {
             runScheduledJobs(t);
         } catch (const std::exception& e) {
-            std::cerr << "[backup] schemaläggaren: " << e.what() << "\n";
+            std::cerr << "[backup] scheduler: " << e.what() << "\n";
         }
         if (t - lastCleanup >= 3600) {
             lastCleanup = t;
             try {
                 cleanup(t);
             } catch (const std::exception& e) {
-                std::cerr << "[backup] städning: " << e.what() << "\n";
+                std::cerr << "[backup] cleanup: " << e.what() << "\n";
             }
         }
         std::unique_lock lock(mutex_);
@@ -870,7 +870,7 @@ void BackupService::runScheduledJobs(std::int64_t t) {
         json schedule = json::parse(job.schedule, nullptr, false);
         db_.setBackupJobNextRun(job.id, schedule.is_discarded() ? 0 : nextRunAfter(schedule, t));
         if (db_.hasActiveBackupRun(job.id)) {
-            std::cerr << "[backup] " << job.name << " körs fortfarande; den schemalagda körningen hoppas över\n";
+            std::cerr << "[backup] " << job.name << " is still running; the scheduled run is skipped\n";
             continue;
         }
         try {
@@ -882,7 +882,7 @@ void BackupService::runScheduledJobs(std::int64_t t) {
             failed.jobId = job.id;
             failed.status = "failed";
             failed.config = job.config;
-            failed.message = std::string("Den schemalagda backupen kunde inte starta: ") + e.what();
+            failed.message = std::string("The scheduled backup could not start: ") + e.what();
             failed.finishedAt = t;
             db_.createBackupRun(failed);
         }
@@ -903,14 +903,14 @@ void BackupService::cleanup(std::int64_t t) {
         if (!entry.is_regular_file() || known.count(entry.path().string())) continue;
         auto age = std::filesystem::file_time_type::clock::now() - entry.last_write_time();
         if (age < std::chrono::hours(1)) continue;
-        std::cout << "[backup] tar bort kvarglömd fil " << entry.path() << std::endl;
+        std::cout << "[backup] removing leftover file " << entry.path() << std::endl;
         std::filesystem::remove(entry.path(), ec);
     }
     db_.pruneBackupRuns(t - kHistorySeconds);
 }
 
 BackupRun BackupService::enqueue(long long userId, long long jobId, const json& config) {
-    if (jobId && db_.hasActiveBackupRun(jobId)) throw BadRequest("Backupen körs redan");
+    if (jobId && db_.hasActiveBackupRun(jobId)) throw BadRequest("The backup is already running");
     BackupRun run;
     run.userId = userId;
     run.jobId = jobId;
@@ -981,16 +981,16 @@ std::vector<std::string> BackupService::jobsUsingDrive(long long userId, long lo
 }
 
 json BackupService::validateConfig(const json& in, long long userId) {
-    if (!in.is_object()) throw BadRequest("Backupinställningar saknas");
+    if (!in.is_object()) throw BadRequest("Backup settings are missing");
     json out;
 
     long long sourceId = in.value("sourceAccountId", 0LL);
     auto source = db_.getAccount(sourceId);
-    if (!source || source->userId != userId) throw BadRequest("Välj vilket konto som ska säkerhetskopieras");
+    if (!source || source->userId != userId) throw BadRequest("Choose which account to back up");
     out["sourceAccountId"] = source->id;
     out["sourceEmail"] = source->email;
 
-    if (!in.contains("destination") || !in["destination"].is_object()) throw BadRequest("Välj var backupen ska sparas");
+    if (!in.contains("destination") || !in["destination"].is_object()) throw BadRequest("Choose where to save the backup");
     const json& dest = in["destination"];
     std::string type = dest.value("type", "");
     if (type == "zip") {
@@ -998,29 +998,29 @@ json BackupService::validateConfig(const json& in, long long userId) {
     } else if (type == "imap") {
         long long targetId = dest.value("accountId", 0LL);
         auto target = db_.getAccount(targetId);
-        if (!target || target->userId != userId) throw BadRequest("Välj ett IMAP-konto att kopiera till");
-        if (target->id == source->id) throw BadRequest("Välj ett annat konto än det som säkerhetskopieras");
+        if (!target || target->userId != userId) throw BadRequest("Choose an IMAP account to copy to");
+        if (target->id == source->id) throw BadRequest("Choose an account other than the one being backed up");
         std::string folder = trim(dest.value("folder", ""));
         while (!folder.empty() && folder.front() == '/') folder.erase(0, 1);
         while (!folder.empty() && folder.back() == '/') folder.pop_back();
-        if (folder.size() > 200) throw BadRequest("Målmappens namn är för långt");
+        if (folder.size() > 200) throw BadRequest("The target folder name is too long");
         out["destination"] = {{"type", "imap"}, {"accountId", target->id}, {"email", target->email}, {"folder", folder}};
     } else if (type == "gdrive") {
         long long connectionId = dest.value("connectionId", 0LL);
         auto connection = db_.getDriveConnection(connectionId);
-        if (!connection || connection->userId != userId) throw BadRequest("Anslut och välj ett Google Drive-konto");
+        if (!connection || connection->userId != userId) throw BadRequest("Connect and choose a Google Drive account");
         int keep = dest.value("keep", 7);
-        if (keep < 1 || keep > 365) throw BadRequest("Antal backuper att behålla måste vara mellan 1 och 365");
+        if (keep < 1 || keep > 365) throw BadRequest("The number of backups to keep must be between 1 and 365");
         out["destination"] = {{"type", "gdrive"}, {"connectionId", connection->id}, {"email", connection->email},
                               {"keep", keep}};
     } else {
-        throw BadRequest("Välj var backupen ska sparas");
+        throw BadRequest("Choose where to save the backup");
     }
 
     json excluded = json::array();
     if (in.contains("excludeFolders")) {
         const json& list = in["excludeFolders"];
-        if (!list.is_array() || list.size() > 5000) throw BadRequest("Ogiltig lista med mappar");
+        if (!list.is_array() || list.size() > 5000) throw BadRequest("Invalid folder list");
         for (const auto& f : list) excluded.push_back(f.get<std::string>());
     }
     out["excludeFolders"] = excluded;
@@ -1028,13 +1028,13 @@ json BackupService::validateConfig(const json& in, long long userId) {
 }
 
 json BackupService::validateSchedule(const json& in, const json& config) {
-    if (!in.is_object()) throw BadRequest("Schema saknas");
+    if (!in.is_object()) throw BadRequest("Schedule is missing");
     std::string frequency = in.value("frequency", "none");
     if (frequency != "none" && frequency != "daily" && frequency != "weekly" && frequency != "monthly") {
-        throw BadRequest("Ogiltigt schema");
+        throw BadRequest("Invalid schedule");
     }
     if (frequency != "none" && config["destination"].value("type", "") == "zip") {
-        throw BadRequest("En zip-fil för nedladdning kan inte schemaläggas. Välj Google Drive eller ett IMAP-konto.");
+        throw BadRequest("A zip file for download cannot be scheduled. Choose Google Drive or an IMAP account.");
     }
     std::string time = in.value("time", "03:00");
     int hour = -1;
@@ -1045,16 +1045,16 @@ json BackupService::validateSchedule(const json& in, const json& config) {
         hour = std::stoi(time.substr(0, 2));
         minute = std::stoi(time.substr(3, 2));
     }
-    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) throw BadRequest("Ange tiden som TT:MM");
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) throw BadRequest("Enter the time as HH:MM");
     int weekday = in.value("weekday", 1);
-    if (weekday < 1 || weekday > 7) throw BadRequest("Ogiltig veckodag");
+    if (weekday < 1 || weekday > 7) throw BadRequest("Invalid weekday");
     int monthday = in.value("monthday", 1);
-    if (monthday < 1 || monthday > 28) throw BadRequest("Dag i månaden måste vara mellan 1 och 28");
+    if (monthday < 1 || monthday > 28) throw BadRequest("Day of the month must be between 1 and 28");
     std::string timezone = in.value("timezone", "UTC");
     try {
         std::chrono::locate_zone(timezone);
     } catch (const std::exception&) {
-        throw BadRequest("Okänd tidszon: " + timezone);
+        throw BadRequest("Unknown time zone: " + timezone);
     }
     return {{"frequency", frequency}, {"time", time},         {"weekday", weekday},
             {"monthday", monthday},   {"timezone", timezone}};
