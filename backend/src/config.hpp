@@ -54,6 +54,7 @@ struct Config {
     // Firebase-projektet. Tom = inga notiser. Adresserna kan bytas ut mot en testserver; {project} ersätts
     // med projektets id.
     std::string fcmServiceAccountFile;
+    std::string firebaseConfigFile;  // google-services.json från Firebase-konsolen; appens klientvärden lämnas ut via API:t.
     std::string fcmUrl = "https://fcm.googleapis.com/v1/projects/{project}/messages:send";
     std::string fcmTokenUrl;  // Tom = token_uri ur nyckelfilen.
     // APK och version.json för Android-appen serveras under /android från den här katalogen.

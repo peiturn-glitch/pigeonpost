@@ -58,6 +58,9 @@ int main(int argc, char** argv) {
         std::cout << "[main] Push to the Android app: "
                   << (push.configured() ? "enabled (Firebase project " + push.projectId() + ")"
                                         : "not configured (FCM_SERVICE_ACCOUNT_FILE)")
+                  << (push.configured() && push.clientConfig().is_null()
+                          ? "; FIREBASE_CONFIG_FILE missing, so only an app built with this project's google-services.json can register"
+                          : "")
                   << std::endl;
         brevduva::BackupService backup(config, db, mail, oauth);
         brevduva::RuleEngine rules(config, db, mail, config.mailCache ? &mailCache : nullptr);

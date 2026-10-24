@@ -78,6 +78,7 @@ Config Config::fromEnvironment() {
     c.backupDir = env("BREVDUVA_BACKUP_DIR", (std::filesystem::path(c.dataDir) / "backups").string());
     std::filesystem::create_directories(c.backupDir);
     c.fcmServiceAccountFile = env("FCM_SERVICE_ACCOUNT_FILE");
+    c.firebaseConfigFile = env("FIREBASE_CONFIG_FILE");
     c.fcmUrl = env("FCM_URL", c.fcmUrl);
     c.fcmTokenUrl = env("FCM_TOKEN_URL");
     c.androidDir = env("BREVDUVA_ANDROID_DIR", (std::filesystem::path(c.dataDir) / "android").string());

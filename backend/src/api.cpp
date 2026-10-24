@@ -1232,6 +1232,12 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
                     {"createdAt", d.createdAt},
                     {"lastSeenAt", d.lastSeenAt}};
     };
+    // Appens push-inställningar: om servern kan skicka push, och Firebase-klientvärdena den ska registrera sig med.
+    server.Get("/api/push/config", authed([push](const Request&, Response& res, const User&) {
+        json firebase;
+        if (push && !push->clientConfig().is_null()) firebase = push->clientConfig();
+        sendJson(res, {{"enabled", push != nullptr}, {"firebase", firebase}});
+    }));
     server.Get("/api/devices", authed([&db, push, deviceJson](const Request&, Response& res, const User& user) {
         json devices = json::array();
         for (const auto& d : db.listDevices(user.id)) devices.push_back(deviceJson(d));

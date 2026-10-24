@@ -107,6 +107,7 @@ All settings are environment variables; `docker-compose.yml` reads them from `.e
 | `RULE_CHECK_SECONDS` | `300` | How often the rules for incoming mail look for new messages in each inbox. With the mail cache on, the sync tells the rules about new mail right away, so this is only a fallback. |
 | `RAW_CACHE_MB` | `1024` | Size limit for recently opened messages with attachments kept on disk in `/data/cache/raw`. `0` disables. |
 | `FCM_SERVICE_ACCOUNT_FILE` | *(empty)* | Path to a Firebase service-account JSON key. Enables push notifications for the Android app. |
+| `FIREBASE_CONFIG_FILE` | *(empty)* | Path to the `google-services.json` of the same Firebase project. The app fetches the project's client settings from `/api/push/config` at login, so one published APK works with push against any server. Without it only an app built with that file can get push. |
 | `BREVDUVA_ANDROID_DIR` | `/data/android` | Directory with the Android APK and `version.json`, served without login under `/android` so the app can update itself. `/android` is off if the directory is missing. |
 | `TZ` | `UTC` | Time zone for dates in backup file names. |
 | `BREVDUVA_PORT` | `80` | Port inside the container. |
@@ -131,7 +132,7 @@ Things to know: `https://mail.google.com/` is a restricted scope, so an unverifi
 The companion Android app (package `cc.pigeonpost.app`) is not part of this repository, but the server has everything it needs:
 
 - **Delta sync:** `GET /api/accounts/:id/changes?since=` returns only what changed since the client's last sync, so a phone can keep a local mirror of the cache.
-- **Push notifications:** create a Firebase project, enable the Cloud Messaging API (v1), create a service account with the role *Firebase Cloud Messaging API Admin*, download its JSON key, mount it into the container and point `FCM_SERVICE_ACCOUNT_FILE` at it. Phones register under `/api/devices`; the server sends a data message with sender and subject when the sync sees new mail in a watched folder. Push is off until the key exists.
+- **Push notifications:** create a Firebase project with an Android app whose package name is `cc.pigeonpost.app`, enable the Cloud Messaging API (v1), create a service account with the role *Firebase Cloud Messaging API Admin*, download its JSON key, mount it into the container and point `FCM_SERVICE_ACCOUNT_FILE` at it. Also download the project's `google-services.json` and point `FIREBASE_CONFIG_FILE` at it: the app asks `/api/push/config` at login and initialises Firebase with those values, so the published APK does not need to be rebuilt for your project. Phones register under `/api/devices`; the server sends a data message with sender and subject when the sync sees new mail in a watched folder. Push is off until the key exists.
 - **Distribution:** put the APK and a `version.json` (`{ "versionName", "versionCode", "minSdk", "url", "sha256", "notes" }`) in a directory mounted as `/data/android` (`BREVDUVA_ANDROID_DIR`). It is served without login under `/android`, and the app checks it for updates. Without the directory, `/android` is off.
 
 ## Security notes

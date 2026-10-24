@@ -279,6 +279,7 @@ Så slår du på push:
 1. Skapa ett Firebase-projekt (kan ligga i samma Google Cloud-projekt som Google-inloggningen) och aktivera **Firebase Cloud Messaging API (V1)**. Registrera en Android-app med paketnamnet `cc.pigeonpost.app` och ladda ned `google-services.json`, som behövs när appen byggs.
 2. Skapa ett tjänstekonto med rollen **Firebase Cloud Messaging API Admin** och ladda ned dess JSON-nyckel.
 3. Lägg nyckeln där containern når den (t.ex. monterad under `/run/secrets`), läsbar för användaren `brevduva` (uid 10001), och sätt `FCM_SERVICE_ACCOUNT_FILE` till sökvägen. Loggen visar vid start om push är aktiverad.
+4. Ladda också ner projektets `google-services.json` (Projektinställningar → Dina appar, Android-appen med paketnamnet `cc.pigeonpost.app`) och sätt `FIREBASE_CONFIG_FILE` till dess sökväg. Appen hämtar projektets klientvärden från `GET /api/push/config` vid inloggning och initierar Firebase med dem, så den publicerade APK:n fungerar med push mot din server utan att byggas om. Värdena i filen är inte hemliga; tjänstekontonyckeln i steg 2 är det.
 
 APK-filen och `version.json` läggs i `BREVDUVA_ANDROID_DIR` (standard `/data/android`, lämpligen en egen volym) och serveras utan inloggning under `/android`, så att appen kan hitta och hämta uppdateringar.
 
@@ -298,6 +299,7 @@ APK-filen och `version.json` läggs i `BREVDUVA_ANDROID_DIR` (standard `/data/an
 | `OPERATOR_CONTACT` | *(tom)*     | Kontakt (e-postadress eller webbadress) som visas på samma sidor. Egna sidor kan monteras som `/app/public/privacy.html` och `/app/public/terms.html`. |
 | `MAIL_CACHE`     | `1`           | `0` stänger av mejlcachen, så att allt läses direkt från mejlservern. |
 | `FCM_SERVICE_ACCOUNT_FILE` | – | JSON-nyckel för ett tjänstekonto i Firebase-projektet. Slår på push-notiser till Android-appen (se [Android-app](#android-app)). |
+| `FIREBASE_CONFIG_FILE` | – | Projektets `google-services.json`. Appen hämtar klientvärdena därifrån via `/api/push/config`, så en och samma APK kan registrera sig mot vilken server som helst (se [Android-app](#android-app)). |
 | `FCM_URL`, `FCM_TOKEN_URL` | Googles adresser | Byts bara ut mot en testserver (`tests/push-mock`). |
 | `BREVDUVA_ANDROID_DIR` | `/data/android` | Katalog med appens APK och `version.json`, som serveras under `/android`. Saknas katalogen är `/android` avstängd. |
 | `RAW_CACHE_MB`   | `1024`        | Högsta storlek i MB för nyligen öppnade meddelanden med bilagor i `/data/cache/raw`. `0` stänger av. |

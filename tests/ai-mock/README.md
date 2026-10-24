@@ -43,6 +43,7 @@ docker run -d --name brevduva-aitest --network brevduva-aitest -p 127.0.0.1:8082
   -e ADMIN_USERNAME=tester -e ADMIN_PASSWORD=testerpass1 \
   -e "AI_EXTRA_PROVIDERS=Testtjänst=http://brevduva-aimock:9998/v1" \
   -v "$PWD/tests/push-mock:/m/push:ro" -e FCM_SERVICE_ACCOUNT_FILE=/m/push/service-account.json \
+  -e FIREBASE_CONFIG_FILE=/m/push/google-services.json \
   -e "FCM_URL=http://brevduva-pushmock:9997/v1/projects/{project}/messages:send" \
   -e FCM_TOKEN_URL=http://brevduva-pushmock:9997/token \
   -e TRASH_DAY_SECONDS=2 -e TRASH_PURGE_INTERVAL=2 -e RULE_CHECK_SECONDS=2 \

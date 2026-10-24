@@ -74,6 +74,7 @@ bool tokenIsDead(long status, const std::string& body) {
 }  // namespace
 
 PushService::PushService(const Config& config, Database& db) : db_(db) {
+    if (!config.firebaseConfigFile.empty()) loadClientConfig(config.firebaseConfigFile);
     if (config.fcmServiceAccountFile.empty()) return;
     std::ifstream in(config.fcmServiceAccountFile, std::ios::binary);
     if (!in) {
@@ -97,6 +98,48 @@ PushService::PushService(const Config& config, Database& db) : db_(db) {
     }
     sendUrl_ = replaceAll(config.fcmUrl.empty() ? kDefaultSendUrl : config.fcmUrl, "{project}", projectId_);
     configured_ = true;
+}
+
+// Läser google-services.json: project_info.project_number/project_id och den första Android-appens
+// mobilesdk_app_id och api_key.current_key (paketnamnet följer med så att appen kan kontrollera att det är dess eget).
+void PushService::loadClientConfig(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        std::cerr << "[push] cannot read " << path << "; the app will not get the Firebase client settings\n";
+        return;
+    }
+    std::stringstream ss;
+    ss << in.rdbuf();
+    json j = json::parse(ss.str(), nullptr, false);
+    if (!j.is_object() || !j.contains("project_info") || !j["project_info"].is_object()) {
+        std::cerr << "[push] " << path << " is not a google-services.json; the app will not get the Firebase client settings\n";
+        return;
+    }
+    const json& info = j["project_info"];
+    json out = {{"projectId", info.value("project_id", "")},
+                {"senderId", info.value("project_number", "")},
+                {"appId", ""},
+                {"apiKey", ""},
+                {"packageName", ""}};
+    if (j.contains("client") && j["client"].is_array()) {
+        for (const auto& c : j["client"]) {
+            if (!c.is_object()) continue;
+            const json& ci = c.value("client_info", json::object());
+            out["appId"] = ci.value("mobilesdk_app_id", "");
+            out["packageName"] = ci.value("android_client_info", json::object()).value("package_name", "");
+            if (c.contains("api_key") && c["api_key"].is_array() && !c["api_key"].empty()) {
+                out["apiKey"] = c["api_key"][0].value("current_key", "");
+            }
+            if (!out["appId"].get<std::string>().empty()) break;
+        }
+    }
+    for (const char* key : {"projectId", "senderId", "appId", "apiKey"}) {
+        if (out[key].get<std::string>().empty()) {
+            std::cerr << "[push] " << path << " lacks " << key << "; the app will not get the Firebase client settings\n";
+            return;
+        }
+    }
+    clientConfig_ = std::move(out);
 }
 
 PushService::~PushService() {

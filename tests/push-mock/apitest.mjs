@@ -119,7 +119,12 @@ const USER = `push-${Date.now().toString(36)}@localhost`
 await api('POST', '/login', { username: 'tester', password: 'testerpass1' })
 
 // 1. Enheten registreras före kontot, och den första synken ger ingen notis för det som redan låg i brevlådan
-let r = await api('GET', '/devices')
+let r = await api('GET', '/push/config')
+log(r.status === 200 && r.data.enabled === true && r.data.firebase && r.data.firebase.projectId === 'brevduva-test' && r.data.firebase.senderId === '123456789012' &&
+    r.data.firebase.appId === '1:123456789012:android:0123456789abcdef' && r.data.firebase.apiKey === 'AIzaTestKeyNotReal' && r.data.firebase.packageName === 'cc.pigeonpost.app',
+    'GET /push/config ger Firebase-klientvärdena ur google-services.json', JSON.stringify(r.data))
+log((await api('GET', '/push/config', undefined, '')).status === 401, 'push-inställningarna kräver inloggning')
+r = await api('GET', '/devices')
 log(r.status === 200 && r.data.pushEnabled === true && r.data.devices.length === 0, 'push är påslagen och inga enheter finns')
 r = await api('PUT', '/devices', { token: 'dev-a', name: 'Telefon A', platform: 'android', appVersion: '1.0', notify: {} })
 log(r.status === 200 && r.data.ok, 'enheten registreras')

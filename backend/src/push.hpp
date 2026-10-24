@@ -3,6 +3,8 @@
 #include "config.hpp"
 #include "db.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -46,6 +48,10 @@ public:
     // Sant när tjänstekontot kunde läsas. Annars gör enqueue ingenting.
     bool configured() const { return configured_; }
     const std::string& projectId() const { return projectId_; }
+    // Appens Firebase-klientvärden (projekt, app-id, API-nyckel, avsändar-id) ur FIREBASE_CONFIG_FILE, så att en och
+    // samma APK kan registrera sig mot den här serverns projekt. null när filen saknas. Värdena är inte hemliga:
+    // de ligger i varje app som byggts mot projektet.
+    const nlohmann::json& clientConfig() const { return clientConfig_; }
 
     void start();
     void stop();
@@ -69,8 +75,11 @@ private:
     static bool wantsFolder(const Device& device, const NewMail& mail);
     bool stopping();
 
+    void loadClientConfig(const std::string& path);
+
     Database& db_;
     bool configured_ = false;
+    nlohmann::json clientConfig_;
     std::string clientEmail_;
     std::string privateKey_;
     std::string projectId_;
