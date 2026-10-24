@@ -502,6 +502,28 @@ CacheListResult Database::listCacheMessages(long long folderId, const CacheListQ
     return out;
 }
 
+std::vector<CacheMessage> Database::cacheFolderHeaders(long long folderId, int limit) {
+    Lock lock(mutex_);
+    Stmt s(db_, std::string("SELECT ") + kMessageColumns + " FROM cache_messages m WHERE m.folder_id = ? ORDER BY m.uid DESC LIMIT ?");
+    s.bind(1, folderId).bind(2, limit);
+    std::vector<CacheMessage> out;
+    while (s.row()) out.push_back(rowToMessage(s));
+    return out;
+}
+
+std::vector<Database::SenderCount> Database::cacheSenderCounts(long long accountId, int minCount, int limit) {
+    Lock lock(mutex_);
+    // Första avsändaradressen i JSON-listan, i gemener; namnet är ett av dem som följt med adressen.
+    Stmt s(db_, "SELECT f.path, LOWER(JSON_UNQUOTE(JSON_EXTRACT(m.sender, '$[0].email'))) AS email, "
+                "MAX(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(m.sender, '$[0].name')), '')), COUNT(*) AS n "
+                "FROM cache_messages m JOIN cache_folders f ON f.id = m.folder_id WHERE f.account_id = ? "
+                "GROUP BY f.path, email HAVING email IS NOT NULL AND email <> '' AND n >= ? ORDER BY n DESC LIMIT ?");
+    s.bind(1, accountId).bind(2, minCount).bind(3, limit);
+    std::vector<SenderCount> out;
+    while (s.row()) out.push_back({s.text(0), s.text(1), s.text(2), s.int64(3)});
+    return out;
+}
+
 namespace {
 
 // Ett alternativ i fulltextsökningen: ett ord blir "ord*", flera ord ("e-post") blir "(+ord1* +ord2*)".

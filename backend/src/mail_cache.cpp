@@ -130,6 +130,10 @@ MailCache::~MailCache() {
     stop();
 }
 
+void MailCache::setNewInboxMailListener(std::function<void(long long)> listener) {
+    newInboxMail_ = std::move(listener);
+}
+
 void MailCache::start() {
     std::lock_guard lock(mutex_);
     if (started_) return;
@@ -788,6 +792,8 @@ bool MailCache::fetchHeaders(Database& wdb, ImapClient& client, const Account& a
     // Nya meddelanden är de med UID från och med uidNext vid förra avstämningen. Vid första synken (eller efter en
     // omnumrering) är syncedUidNext 0, och då är inget nytt för användaren.
     bool watch = push_ && notifiable(f) && f.syncedUidNext > 0;
+    // Ny post i inkorgen (inte det som hämtas vid första synken) ska reglerna få veta om.
+    bool inbox = newInboxMail_ && f.specialUse == "inbox" && f.syncedUidNext > 0;
     std::sort(missing.begin(), missing.end(), std::greater<>());
     for (std::size_t i = 0; i < missing.size(); i += kHeaderChunk) {
         if (budget.headers <= 0) return false;
@@ -800,9 +806,11 @@ bool MailCache::fetchHeaders(Database& wdb, ImapClient& client, const Account& a
         auto fetched = client.uidFetch(ImapClient::uidSetFrom(chunk), kHeaderFetch);
         std::vector<CacheMessage> rows;
         std::vector<NewMail> fresh;
+        bool freshInbox = false;
         rows.reserve(fetched.size());
         for (const auto& m : fetched) {
             auto h = mime::parseHeaders(m.body, m.internalDate);
+            freshInbox = freshInbox || (inbox && m.uid >= f.syncedUidNext);
             CacheMessage row;
             row.uid = m.uid;
             row.subject = textutil::utf8Clean(h.subject);
@@ -847,6 +855,7 @@ bool MailCache::fetchHeaders(Database& wdb, ImapClient& client, const Account& a
         }
         // Först när raderna är sparade, så att appen hittar meddelandet när den hämtar ändringarna efter notisen.
         if (!fresh.empty()) push_->enqueue(std::move(fresh));
+        if (freshInbox) newInboxMail_(account.id);
         budget.headers -= static_cast<int>(chunk.size());
     }
     return true;

@@ -144,7 +144,8 @@ std::vector<AiProvider> parseExtraProviders(const std::string& value) {
 
 }  // namespace
 
-AiSorter::AiSorter(const Config& config, Database& db, MailService& mail) : db_(db), mail_(mail) {
+AiSorter::AiSorter(const Config& config, Database& db, MailService& mail, RuleEngine& rules)
+    : db_(db), mail_(mail), rules_(rules) {
     providers_ = {
         {"Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-flash-latest", true},
         {"OpenAI", "https://api.openai.com/v1", "gpt-5-mini", true},
@@ -305,18 +306,6 @@ std::string senderDomain(const std::string& email) {
     return shared.count(domain) ? std::string() : "@" + domain;
 }
 
-const AiSenderRule* ruleFor(const std::vector<AiSenderRule>& rules, const std::string& email) {
-    if (email.empty()) return nullptr;
-    const AiSenderRule* domainRule = nullptr;
-    auto at = email.rfind('@');
-    std::string domain = at == std::string::npos ? std::string() : email.substr(at);
-    for (const auto& r : rules) {
-        if (r.sender == email) return &r;  // En regel för adressen går före en för domänen.
-        if (!domain.empty() && r.sender == domain) domainRule = &r;
-    }
-    return domainRule;
-}
-
 }  // namespace
 
 json AiSorter::pickCorrections(long long accountId, const std::string& folder, const std::vector<Target>& targets,
@@ -360,30 +349,26 @@ std::vector<AiSorter::Suggestion> AiSorter::classify(const AiSettings& settings,
     for (std::size_t i = 0; i < summaries.size(); ++i) out[i].uid = summaries[i].uid;
 
     std::vector<std::size_t> rest;  // Meddelanden utan regel; dem får AI:n ta.
-    auto rules = db_.aiSenderRulesFor(accountId);
-    std::set<std::string> ruleFolders, trashFolders;
-    if (!rules.empty()) {
-        // En regel är användarens uttryckliga val och gäller även mappar som är bortvalda för AI:n.
-        static const std::set<std::string> neverTarget = {"drafts", "sent", "all", "flagged", "important"};
-        for (const auto& f : mail_.listFolders(accountId, false)) {
-            std::string use = f.value("specialUse", "");
-            if (!f.value("selectable", false) || neverTarget.count(use)) continue;
-            (use == "trash" ? trashFolders : ruleFolders).insert(f.at("path").get<std::string>());
-        }
+    auto decisions = rules_.evaluate(accountId, folder, summaries);
+    std::set<std::string> trashFolders;
+    for (const auto& f : mail_.listFolders(accountId, false)) {
+        if (f.value("selectable", false) && f.value("specialUse", "") == "trash") trashFolders.insert(f.at("path").get<std::string>());
     }
     for (std::size_t i = 0; i < summaries.size(); ++i) {
-        const AiSenderRule* rule = ruleFor(rules, senderEmail(summaries[i]));
-        if (rule && (rule->target.empty() || rule->target == folder)) {
-            out[i].reason = "Your rule: mail from " + rule->sender + " stays";
-        } else if (rule && trashFolders.count(rule->target) && unattended) {
+        const RuleOutcome& d = decisions[i];
+        if (d.matched) out[i].ruleId = d.ruleId;
+        if (!d.matched) {
+            rest.push_back(i);
+        } else if (d.move.empty()) {
+            // En regel stämde men flyttar inte (eller dess mapp finns inte längre): meddelandet ligger kvar.
+            out[i].reason = "Your rule \"" + d.ruleName + "\" keeps the message here";
+        } else if (trashFolders.count(d.move) && unattended) {
             // Inget slängs utan granskning. Meddelandet får ligga kvar i stället för att AI:n väljer en annan mapp
             // än den användaren har bestämt.
-            out[i].reason = "Your rule points to the trash, which is not used without review";
-        } else if (rule && (ruleFolders.count(rule->target) || trashFolders.count(rule->target))) {
-            out[i].target = rule->target;
-            out[i].reason = "Your rule for " + rule->sender;
+            out[i].reason = "Your rule \"" + d.ruleName + "\" points to the trash, which is not used without review";
         } else {
-            rest.push_back(i);  // Ingen regel, eller en regel vars mapp inte finns längre.
+            out[i].target = d.move;
+            out[i].reason = "Your rule \"" + d.ruleName + "\"";
         }
     }
     if (rest.empty()) return out;
@@ -626,6 +611,7 @@ void AiSorter::sortNewMessages(AiAutoRule& rule) {
                 entry.sourceFolder = folder;
                 entry.targetFolder = s.target;
                 entry.reason = s.reason;
+                entry.ruleId = s.ruleId;
                 entry.movedAt = now();
                 db_.addAiSortLog(entry);
             }
@@ -638,20 +624,27 @@ void AiSorter::sortNewMessages(AiAutoRule& rule) {
 // --- Det sorteringen har lärt sig ---------------------------------------------------
 
 json AiSorter::learningState(long long userId) {
+    // Avsändare som redan har en regel eller ett nej tack föreslås inte igen.
+    auto mailRules = db_.listRules(userId);
+    std::map<long long, std::vector<MailRule>> rulesByAccount;
+    for (const auto& r : mailRules) rulesByAccount[r.accountId].push_back(r);
+    std::set<std::pair<long long, std::string>> dismissed;
+    for (const auto& d : db_.listDismissedSenders(userId)) dismissed.insert({d.accountId, d.sender});
+    auto decided = [&](long long accountId, const std::string& email) {
+        if (dismissed.count({accountId, email})) return true;
+        auto at = email.rfind('@');
+        if (at != std::string::npos && dismissed.count({accountId, email.substr(at)})) return true;
+        auto it = rulesByAccount.find(accountId);
+        return it != rulesByAccount.end() && RuleEngine::coversSender(it->second, email);
+    };
     json rules = json::array();
-    std::set<std::pair<long long, std::string>> decided;  // Avsändare som har en regel eller ett nej tack.
-    for (const auto& r : db_.listAiSenderRules(userId)) {
-        decided.insert({r.accountId, r.sender});
-        if (r.dismissed) continue;
-        rules.push_back({{"id", r.id}, {"accountId", r.accountId}, {"sender", r.sender}, {"target", r.target}, {"createdAt", r.createdAt}});
-    }
+    for (const auto& r : mailRules) rules.push_back({{"id", r.id}, {"accountId", r.accountId}, {"name", r.name}, {"enabled", r.enabled}});
 
     // Tre likadana beslut i rad för en avsändare ger ett förslag på en fast regel.
     json suggestions = json::array();
     for (const auto& [accountId, email] : db_.aiSortFrequentSenders(userId, kRuleAfter, 300)) {
         if (suggestions.size() >= 50) break;
-        auto at = email.rfind('@');
-        if (decided.count({accountId, email}) || (at != std::string::npos && decided.count({accountId, email.substr(at)}))) continue;
+        if (decided(accountId, email)) continue;
         auto latest = db_.aiSortDecisionsFor(accountId, email, kRuleAfter);
         if (latest.size() < static_cast<std::size_t>(kRuleAfter)) continue;
         bool same = std::all_of(latest.begin(), latest.end(), [&](const AiSortExample& e) { return e.chosen == latest.front().chosen; });
@@ -706,37 +699,6 @@ json AiSorter::feedback(long long userId, long long accountId, const json& body)
         db_.addAiSortExample(e);
     }
     db_.pruneAiSortExamples(accountId, kKeepExamples);
-    return learningState(userId);
-}
-
-json AiSorter::saveSenderRule(long long userId, long long accountId, const json& body) {
-    AiSenderRule rule;
-    rule.userId = userId;
-    rule.accountId = accountId;
-    rule.sender = lower(trim(body.value("sender", std::string())));
-    auto at = rule.sender.find('@');
-    // En adress (namn@domän) eller en hel domän (@domän).
-    if (rule.sender.size() > 320 || at == std::string::npos || at + 1 >= rule.sender.size() ||
-        rule.sender.find_first_of(" \t<>,;") != std::string::npos) {
-        throw BadRequest("Enter an email address, or a domain such as @example.com");
-    }
-    rule.dismissed = body.value("dismissed", false);
-    rule.target = rule.dismissed ? std::string() : body.value("target", std::string());
-    if (rule.target.size() > 1000) throw BadRequest("Invalid folder");
-    if (!rule.target.empty()) {
-        bool exists = false;
-        for (const auto& f : mail_.listFolders(accountId, false)) {
-            exists = exists || (f.value("selectable", false) && f.at("path").get<std::string>() == rule.target);
-        }
-        if (!exists) throw BadRequest("The folder does not exist");
-    }
-    rule.createdAt = now();
-    db_.saveAiSenderRule(rule);
-    return learningState(userId);
-}
-
-json AiSorter::deleteSenderRule(long long userId, long long ruleId) {
-    if (!db_.deleteAiSenderRule(ruleId, userId)) throw NotFound("The rule does not exist");
     return learningState(userId);
 }
 
@@ -944,6 +906,7 @@ void AiSorter::sortJobBatch(AiSortJob& job) {
             entry.sourceFolder = job.folder;
             entry.targetFolder = s.target;
             entry.reason = s.reason;
+                entry.ruleId = s.ruleId;
             entry.movedAt = now();
             entry.jobId = job.id;
             db_.addAiSortLog(entry);
@@ -1219,6 +1182,7 @@ bool renameInList(json& paths, const std::string& from, const std::string& to) {
 }  // namespace
 
 void AiSorter::folderRenamed(long long accountId, const std::string& from, const std::string& to) {
+    rules_.folderRenamed(accountId, from, to);
     if (auto rule = db_.getAiAutoRule(accountId)) {
         json targets = json::parse(rule->targets, nullptr, false);
         if (renameInList(targets, from, to)) {
@@ -1258,6 +1222,7 @@ json AiSorter::undo(long long userId, long long logId) {
     }
     db_.markAiSortLogUndone(entry->id, now());
     if (entry->jobId) db_.addAiSortJobMoved(entry->jobId, -1);
+    if (entry->ruleId) return autoState(userId);  // En regel, inte AI:n, gjorde flytten: inget att lära av.
     // En ångrad flytt är en rättning: AI:n valde fel, och meddelandet skulle ha legat kvar.
     AiSortExample example;
     example.userId = userId;

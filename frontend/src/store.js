@@ -117,11 +117,12 @@ export const useMailStore = defineStore('mail', () => {
   const usersDialog = ref(false)
   const passwordDialog = ref(false)
   const thunderbirdDialog = ref(false)
-  const layoutDialog = ref(false)
+  const settingsDialog = ref(false)
   const backupDialog = ref(false) // true eller { accountId } för att förvälja ett konto
   const draggedFolder = ref(null) // { accountId, folder } medan en mapp dras i mapplistan
   const folderMoveDialog = ref(null) // { accountId, folder } när en mapp ska flyttas
   const aiDialog = ref(false) // true eller { accountId, folder, uids } för att förvälja vad som ska sorteras
+  const rulesDialog = ref(false) // true eller { accountId, prefill: { name, conditions } } för att öppna redigeraren förifylld
   const remoteSenders = ref(new Set()) // Avsändare vars fjärrinnehåll alltid visas
   const searchDialog = ref(false) // Sökning i alla mappar
   // Sökningen ligger här och inte i dialogen, så att träffarna finns kvar när man har öppnat en av dem och kommer tillbaka.
@@ -178,9 +179,10 @@ export const useMailStore = defineStore('mail', () => {
     usersDialog.value = false
     passwordDialog.value = false
     thunderbirdDialog.value = false
-    layoutDialog.value = false
+    settingsDialog.value = false
     backupDialog.value = false
     aiDialog.value = false
+    rulesDialog.value = false
     searchDialog.value = false
     remoteSenders.value = new Set()
     Object.assign(search, { question: '', explanation: '', form: emptySearchForm(), results: [], total: 0, page: 0, searched: false })
@@ -205,6 +207,17 @@ export const useMailStore = defineStore('mail', () => {
 
   function folderInfo(accountId, path) {
     return (folders[accountId] || []).find((f) => f.path === path)
+  }
+
+  // Inställningar som sparas per användare på servern (gäller även appen), t.ex. hur länge papperskorgen sparar.
+  async function saveSettings(patch) {
+    try {
+      const saved = await api.saveSettings(patch)
+      if (user.value) user.value = { ...user.value, ...saved }
+      notify(t('Settings saved'))
+    } catch (e) {
+      notify(e.message, 'error')
+    }
   }
 
   function specialFolder(accountId, use) {
@@ -660,21 +673,32 @@ export const useMailStore = defineStore('mail', () => {
     return [...selection.value]
   }
 
+  // Flaggor ändras i listan direkt och skickas till servern efteråt. Misslyckas anropet återställs de
+  // meddelanden det gällde, så att listan visar vad servern faktiskt har.
   async function setFlag(flag, value, keys) {
     const list = targetKeys(keys)
     if (!list.length) return
-    try {
-      for (const group of groupByFolder(list)) {
-        await api.setFlags(group.accountId, group.folder, group.uids, value ? [flag] : [], value ? [] : [flag])
-        for (const m of messages.value) {
-          if (!group.keys.includes(m.key) || m[flag] === value) continue
-          if (flag === 'seen') adjustUnread(group.accountId, group.folder, value ? -1 : 1)
-          m[flag] = value
-        }
-        if (openMessage.value && group.keys.includes(openMessage.value.key)) openMessage.value[flag] = value
+    const groups = groupByFolder(list)
+    const apply = (group, to) => {
+      const changed = []
+      for (const m of messages.value) {
+        if (!group.keys.includes(m.key) || m[flag] === to) continue
+        if (flag === 'seen') adjustUnread(group.accountId, group.folder, to ? -1 : 1)
+        m[flag] = to
+        changed.push(m)
       }
-    } catch (e) {
-      notify(e.message, 'error')
+      if (openMessage.value && group.keys.includes(openMessage.value.key)) openMessage.value[flag] = to
+      return changed
+    }
+    const applied = groups.map((group) => apply(group, value))
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i]
+      try {
+        await api.setFlags(group.accountId, group.folder, group.uids, value ? [flag] : [], value ? [] : [flag])
+      } catch (e) {
+        notify(e.message, 'error')
+        apply({ ...group, keys: applied[i].map((m) => m.key) }, !value)
+      }
     }
   }
 
@@ -731,22 +755,25 @@ export const useMailStore = defineStore('mail', () => {
     const targetAccountId = targetAccount ?? current.accountId ?? groups[0]?.accountId
     const movable = groups.filter((g) => g.accountId === targetAccountId && g.folder !== target)
     const skipped = groups.filter((g) => g.accountId !== targetAccountId).reduce((n, g) => n + g.uids.length, 0)
-    const done = []
+    // Som vid borttagning: listan uppdateras direkt och servern jobbar i bakgrunden. Misslyckas en flytt läses
+    // listan in igen, så att meddelandena som är kvar kommer tillbaka.
+    if (movable.length) removeFromList(movable.flatMap((g) => g.keys))
     let moved = 0
-    try {
-      for (const group of movable) {
+    let failed = false
+    for (const group of movable) {
+      try {
         await api.move(group.accountId, group.folder, group.uids, target)
         moved += group.uids.length
-        done.push(...group.keys)
+      } catch (e) {
+        failed = true
+        notify(e.message, 'error')
       }
-    } catch (e) {
-      notify(e.message, 'error')
     }
-    if (done.length) removeFromList(done)
     if (moved) {
       loadFolders(targetAccountId)
       notify(moved === 1 ? t('1 message was moved') : t('{n} messages were moved', { n: moved }))
     }
+    if (failed) loadMessages({ keepSelection: true })
     if (skipped) {
       notify(
         skipped === 1
@@ -766,14 +793,17 @@ export const useMailStore = defineStore('mail', () => {
       if (!byAccount.has(group.accountId)) byAccount.set(group.accountId, [])
       byAccount.get(group.accountId).push(...group.keys)
     }
+    const moves = []
     for (const [accountId, accountKeys] of byAccount) {
       const folder = specialFolder(accountId, use)
       if (!folder) {
         notify(missing, 'error')
         continue
       }
-      await moveMessages(folder.path, accountKeys, accountId)
+      moves.push(moveMessages(folder.path, accountKeys, accountId))
     }
+    // Parallellt, så att alla kontons meddelanden försvinner ur listan på en gång.
+    await Promise.all(moves)
   }
 
   const markJunk = (keys) => moveToSpecial('junk', t('The account has no junk folder'), keys)
@@ -928,9 +958,10 @@ export const useMailStore = defineStore('mail', () => {
     signatureFor,
     identityDialog,
     thunderbirdDialog,
-    layoutDialog,
+    settingsDialog,
     backupDialog,
     aiDialog,
+    rulesDialog,
     remoteSenders,
     setRemoteSenderTrusted,
     selectView,
@@ -977,6 +1008,7 @@ export const useMailStore = defineStore('mail', () => {
     selectedMessages,
     hasMore,
     notify,
+    saveSettings,
     account,
     folderInfo,
     specialFolder,

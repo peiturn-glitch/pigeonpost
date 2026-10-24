@@ -6,11 +6,13 @@
 #include "crypto.hpp"
 #include "db.hpp"
 #include "mail_cache.hpp"
+#include "rules.hpp"
 #include "mail_service.hpp"
 #include "mime.hpp"
 #include "oauth.hpp"
 #include "push.hpp"
 #include "text_util.hpp"
+#include "trash_purger.hpp"
 
 #include <curl/curl.h>
 #include <httplib.h>
@@ -58,7 +60,9 @@ int main(int argc, char** argv) {
                                         : "not configured (FCM_SERVICE_ACCOUNT_FILE)")
                   << std::endl;
         brevduva::BackupService backup(config, db, mail, oauth);
-        brevduva::AiSorter aiSorter(config, db, mail);
+        brevduva::RuleEngine rules(config, db, mail, config.mailCache ? &mailCache : nullptr);
+        brevduva::AiSorter aiSorter(config, db, mail, rules);
+        brevduva::TrashPurger trashPurger(config, db, mail, config.mailCache ? &mailCache : nullptr);
         std::cout << "[main] Google sign-in for Gmail: " << (oauth.configured() ? "enabled" : "not configured")
                   << std::endl;
 
@@ -89,10 +93,12 @@ int main(int argc, char** argv) {
             {"X-Frame-Options", "DENY"},
         });
 
-        brevduva::registerApi(server, db, auth, mail, oauth, backup, aiSorter, config.mailCache ? &mailCache : nullptr,
-                              push.configured() ? &push : nullptr);
+        brevduva::registerApi(server, db, auth, mail, oauth, backup, aiSorter, rules, trashPurger,
+                              config.mailCache ? &mailCache : nullptr, push.configured() ? &push : nullptr);
         backup.start();
+        rules.start();
         aiSorter.start();
+        trashPurger.start();
         push.start();
         if (config.mailCache) mailCache.start();
 
@@ -186,6 +192,8 @@ int main(int argc, char** argv) {
         mailCache.stop();
         push.stop();
         aiSorter.stop();
+        rules.stop();
+        trashPurger.stop();
         backup.stop();
         curl_global_cleanup();
     } catch (const std::exception& e) {

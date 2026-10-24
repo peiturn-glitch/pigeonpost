@@ -13,10 +13,11 @@ import FolderMoveDialog from './FolderMoveDialog.vue'
 import FolderPane from './FolderPane.vue'
 import IdentityDialog from './IdentityDialog.vue'
 import Icon from './Icon.vue'
-import LayoutDialog from './LayoutDialog.vue'
+import SettingsDialog from './SettingsDialog.vue'
 import MessageList from './MessageList.vue'
 import MessageView from './MessageView.vue'
 import PasswordDialog from './PasswordDialog.vue'
+import RulesDialog from './RulesDialog.vue'
 import ThunderbirdDialog from './ThunderbirdDialog.vue'
 import UsersDialog from './UsersDialog.vue'
 
@@ -97,9 +98,10 @@ function onKeydown(event) {
     store.usersDialog ||
     store.passwordDialog ||
     store.thunderbirdDialog ||
-    store.layoutDialog ||
+    store.settingsDialog ||
     store.backupDialog ||
     store.aiDialog ||
+    store.rulesDialog ||
     store.searchDialog ||
     store.folderMoveDialog
   ) {
@@ -240,7 +242,7 @@ onBeforeUnmount(() => {
 
       <div class="spacer" />
 
-      <button class="btn ghost" :title="t('Layout: arrange panes (F8 reading pane, F9 folders)')" @click="store.layoutDialog = true">
+      <button class="btn ghost" :title="t('Layout: arrange panes (F8 reading pane, F9 folders)')" @click="store.settingsDialog = true">
         <Icon name="layout" />
       </button>
       <div class="menu-wrap" @click.stop>
@@ -273,8 +275,11 @@ onBeforeUnmount(() => {
           <button @click="store.aiDialog = true; menuOpen = false">
             <Icon name="sparkles" /> {{ t('Sort with AI') }}
           </button>
-          <button @click="store.layoutDialog = true; menuOpen = false">
-            <Icon name="layout" /> {{ t('Layout') }}
+          <button @click="store.rulesDialog = true; menuOpen = false">
+            <Icon name="filter" /> {{ t('Rules') }}
+          </button>
+          <button @click="store.settingsDialog = true; menuOpen = false">
+            <Icon name="layout" /> {{ t('Settings') }}
           </button>
           <hr />
           <button v-if="store.user?.isAdmin" @click="store.usersDialog = true; menuOpen = false">
@@ -328,9 +333,10 @@ onBeforeUnmount(() => {
     <UsersDialog v-if="store.usersDialog" />
     <ThunderbirdDialog v-if="store.thunderbirdDialog" />
     <PasswordDialog v-if="store.passwordDialog" />
-    <LayoutDialog v-if="store.layoutDialog" />
+    <SettingsDialog v-if="store.settingsDialog" />
     <BackupDialog v-if="store.backupDialog" />
     <AiSortDialog v-if="store.aiDialog" />
+    <RulesDialog v-if="store.rulesDialog" />
     <SearchDialog v-if="store.searchDialog" />
     <FolderMoveDialog v-if="store.folderMoveDialog" />
     <ContextMenu v-if="store.contextMenu" />

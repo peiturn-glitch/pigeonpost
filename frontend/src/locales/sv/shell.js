@@ -1,5 +1,5 @@
 // Swedish translations for the application shell: App.vue, LoginView, MailLayout (toolbar and menu),
-// LayoutDialog and UsersDialog. The key is the English text exactly as passed to t().
+// SettingsDialog and UsersDialog. The key is the English text exactly as passed to t().
 export default {
   // App.vue
   'Loading…': 'Läser in…',
@@ -49,14 +49,16 @@ export default {
   'Back up email accounts': 'Backup av e-postkonton',
   'Search all folders': 'Sök i alla mappar',
   'Sort with AI': 'Sortera med AI',
-  Layout: 'Layout',
+  Rules: 'Regler',
+  Settings: 'Inställningar',
   'Manage users': 'Hantera användare',
   'Change password': 'Byt lösenord',
   'Sign out': 'Logga ut',
   Message: 'Meddelande',
   'Close (Esc)': 'Stäng (Esc)',
 
-  // LayoutDialog.vue
+  // SettingsDialog.vue
+  Layout: 'Layout',
   Close: 'Stäng',
   Left: 'Vänster',
   Right: 'Höger',
@@ -78,6 +80,13 @@ export default {
     'Dra i kanterna mellan panelerna för att ändra storlek. {f8} visar eller döljer läsrutan och {f9} mappfältet. Utan läsruta öppnas ett meddelande med dubbelklick eller {enter}.',
   'Reset sizes': 'Återställ storlekar',
   Done: 'Klar',
+  'Empty trash automatically': 'Töm papperskorgen automatiskt',
+  Never: 'Aldrig',
+  'After 1 day': 'Efter 1 dag',
+  'After {n} days': 'Efter {n} dagar',
+  'Messages that have been in the trash longer than this are deleted for good. The time counts from when a message ended up in the trash, also when it was deleted from another email program.':
+    'Meddelanden som legat längre än så i papperskorgen tas bort för gott. Tiden räknas från när meddelandet hamnade i papperskorgen, även när det togs bort från ett annat e-postprogram.',
+  'Settings saved': 'Inställningarna sparades',
 
   // UsersDialog.vue
   'User {name} was created': 'Användaren {name} skapades',

@@ -59,6 +59,7 @@ export default {
   'You have made the same choice {n} times in a row for these senders. With a rule, their mail goes to the right place straight away, without asking the AI.':
     'Du har gjort samma val {n} gånger i rad för de här avsändarna. Med en regel hamnar deras mejl rätt direkt, utan att AI:n tillfrågas.',
   'Mail from': 'Mejl från',
+  'Mail from {sender}': 'Mejl från {sender}',
   'Create rule': 'Skapa regel',
   'No thanks': 'Nej tack',
   '…and {n} more.': '…och {n} till.',
@@ -100,8 +101,8 @@ export default {
     'Det finns inga mappar att sortera till. Skapa mappar genom att högerklicka på kontot, eller välj fler ovan.',
   'Sender, recipients, subject and the first {n} characters of the text are sent to {provider} ({model}). Nothing is moved until you have approved the suggestions.':
     'Avsändare, mottagare, ämne och de första {n} tecknen av texten skickas till {provider} ({model}). Inget flyttas förrän du har godkänt förslagen.',
-  'Sorting uses {rules} sender rules and learns from {corrections} corrections (see Settings).':
-    'Sorteringen använder {rules} avsändarregler och lär sig av {corrections} rättningar (se Inställningar).',
+  'Sorting uses {rules} rules and learns from {corrections} corrections (see Settings).':
+    'Sorteringen använder {rules} regler och lär sig av {corrections} rättningar (se Inställningar).',
   'Your own rules are used.': 'Dina egna regler används.',
   'You can write your own rules under Settings.': 'Du kan skriva egna regler under Inställningar.',
   'This account already has a sort running in the background': 'Kontot har redan en sortering i bakgrunden',
@@ -170,13 +171,11 @@ export default {
   'The connection works. {n} models are available to choose from in the Model field.':
     'Anslutningen fungerar. {n} modeller finns att välja i fältet Modell.',
   Learned: 'Inlärt',
-  'When you change the folder of a suggestion, decline it or undo an automatic move, it is saved as a correction. The AI gets the most relevant corrections as examples with every sort. Sender rules take precedence over the AI, also for automatic sorting and in the background (but never to the trash without review).':
-    'När du byter mapp på ett förslag, tackar nej till det eller ångrar en automatisk flytt sparas det som en rättning. AI:n får de mest närliggande rättningarna som exempel vid varje sortering. Avsändarregler gäller före AI:n, även vid automatisk sortering och i bakgrunden (dock aldrig till papperskorgen utan granskning).',
-  'Sender rules': 'Avsändarregler',
-  '(the folder no longer exists)': '(mappen finns inte längre)',
-  'Delete rule': 'Ta bort regeln',
-  'name@example.com or @example.com': 'namn@exempel.se eller @exempel.se',
-  'Add rule': 'Lägg till regel',
+  'When you change the folder of a suggestion, decline it or undo an automatic move, it is saved as a correction. The AI gets the most relevant corrections as examples with every sort. Rules take precedence over the AI, also for automatic sorting and in the background.':
+    'När du byter mapp på ett förslag, tackar nej till det eller ångrar en automatisk flytt sparas det som en rättning. AI:n får de mest närliggande rättningarna som exempel vid varje sortering. Regler gäller före AI:n, även vid automatisk sortering och i bakgrunden.',
+  'Rules for incoming mail are managed under Rules.': 'Regler för inkommande post hanteras under Regler.',
+  '{n} rules': '{n} regler',
+  'Open Rules': 'Öppna Regler',
   Corrections: 'Rättningar',
   'Delete all': 'Ta bort alla',
   'No corrections yet.': 'Inga rättningar ännu.',

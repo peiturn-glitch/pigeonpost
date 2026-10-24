@@ -57,6 +57,8 @@ export const api = {
   logout: () => request('POST', '/logout'),
   changePassword: (currentPassword, newPassword) =>
     request('POST', '/me/password', { body: { currentPassword, newPassword } }),
+  settings: () => request('GET', '/settings'),
+  saveSettings: (settings) => request('PUT', '/settings', { body: settings }),
 
   users: () => request('GET', '/users'),
   createUser: (user) => request('POST', '/users', { body: user }),
@@ -130,14 +132,23 @@ export const api = {
   aiSortCursor: (accountId, cursor) => request('PUT', `/accounts/${accountId}/ai-sort-cursor`, { body: cursor }),
   aiLearning: () => request('GET', '/ai/learning'),
   aiFeedback: (accountId, folder, decisions) => request('POST', `/accounts/${accountId}/ai-feedback`, { body: { folder, decisions } }),
-  aiRuleSave: (accountId, rule) => request('POST', `/accounts/${accountId}/ai-rules`, { body: rule }),
-  aiRuleDelete: (ruleId) => request('DELETE', `/ai/rules/${ruleId}`),
   aiExampleDelete: (exampleId) => request('DELETE', `/ai/examples/${exampleId}`),
   aiExamplesClear: () => request('DELETE', '/ai/examples'),
   aiJobs: () => request('GET', '/ai/jobs'),
   aiJobStart: (accountId, job) => request('POST', `/accounts/${accountId}/ai-jobs`, { body: job }),
   aiJobAction: (jobId, action) => request('POST', `/ai/jobs/${jobId}/${action}`),
   aiSort: (accountId, body) => request('POST', `/accounts/${accountId}/ai-sort`, { body }),
+
+  // Mail rules (server-side filters) and the suggestions for new ones.
+  rules: () => request('GET', '/rules'),
+  ruleSave: (accountId, rule) => request('POST', `/accounts/${accountId}/rules`, { body: rule }),
+  ruleUpdate: (id, rule) => request('PUT', `/rules/${id}`, { body: rule }),
+  ruleDelete: (id) => request('DELETE', `/rules/${id}`),
+  ruleOrder: (accountId, ids) => request('PUT', `/accounts/${accountId}/rules/order`, { body: { ids } }),
+  ruleTest: (accountId, rule, folder) => request('POST', `/accounts/${accountId}/rules/test`, { body: { rule, folder } }),
+  ruleRun: (accountId, folder) => request('POST', `/accounts/${accountId}/rules/run`, { body: { folder } }),
+  ruleSuggest: (accountId, useAi) => request('POST', `/accounts/${accountId}/rules/suggest`, { body: { useAi } }),
+  ruleDismiss: (accountId, sender) => request('POST', `/accounts/${accountId}/rules/dismiss`, { body: { sender } }),
 
   send: (accountId, message, files) =>
     request('POST', `/accounts/${accountId}/send`, { form: composeForm(message, files) }),

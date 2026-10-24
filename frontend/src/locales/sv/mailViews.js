@@ -79,6 +79,8 @@ export default {
   'Unread in all folders': 'Olästa i alla mappar',
   'Show in folder': 'Visa i sin mapp',
   'Sort with AI…': 'Sortera med AI…',
+  'Create rule from message…': 'Skapa regel från meddelandet…',
+  'Mail from {sender}': 'Mejl från {sender}',
   'Show unread only': 'Visa endast olästa',
   'Show starred only': 'Visa endast stjärnmärkta',
   'Search unread…': 'Sök bland olästa…',

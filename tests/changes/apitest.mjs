@@ -66,7 +66,7 @@ function imap(user, commands) {
 }
 
 function sql(statement) {
-  return execSync(`docker exec ${DB_CONTAINER} mysql -ubrevduva -p${DB_PASSWORD} brevduva -N -e ${JSON.stringify(statement)}`).toString().trim()
+  return execSync(`docker exec ${DB_CONTAINER} mariadb -ubrevduva -p${DB_PASSWORD} brevduva -N -e ${JSON.stringify(statement)}`).toString().trim()
 }
 
 async function waitFor(check, timeoutMs = 60000, every = 1000) {
@@ -262,6 +262,23 @@ log(unauth.status === 401, 'förnyelse utan inloggning ger 401')
 // 13. Gzip: svaret komprimeras när klienten ber om det
 const gz = await fetch(APP + `/api/accounts/${id}/changes?since=0`, { headers: { Cookie: cookie, 'Accept-Encoding': 'gzip' } })
 log(gz.ok && gz.headers.get('content-encoding') === 'gzip', 'svaret gzippas på begäran', String(gz.headers.get('content-encoding')))
+
+// Texter i bunt för appens förhämtning: allt som finns i cachen i ett svar, resten i missing.
+{
+  const inbox = (await api('GET', `/accounts/${id}/messages?folder=INBOX&pageSize=100`)).data.messages || []
+  const uids = inbox.map((m) => m.uid)
+  const bulk = await api('POST', `/accounts/${id}/messages/bodies`, { folder: 'INBOX', uids: [...uids, 987654321] })
+  const got = bulk.data.messages || []
+  log(bulk.status === 200 && got.length + (bulk.data.missing || []).length === uids.length + 1 && bulk.data.missing.includes(987654321),
+      'POST /messages/bodies ger texterna i bunt och listar det som saknas', `${got.length} texter, ${(bulk.data.missing || []).length} saknas av ${uids.length + 1}`)
+  log(got.every((m) => m.uid && m.folder === 'INBOX' && typeof m.text === 'string' && typeof m.html === 'string' && Array.isArray(m.attachments) && m.cached === true),
+      'varje text i bunten har samma form som GET /message')
+  const seenBefore = inbox.map((m) => m.seen)
+  const after = (await api('GET', `/accounts/${id}/messages?folder=INBOX&pageSize=100`)).data.messages.map((m) => m.seen)
+  log(JSON.stringify(seenBefore) === JSON.stringify(after), 'bunthämtningen märker inget som läst')
+  const tooMany = await api('POST', `/accounts/${id}/messages/bodies`, { folder: 'INBOX', uids: Array.from({ length: 101 }, (_, i) => i + 1) })
+  log(tooMany.status === 400, 'högst 100 meddelanden per anrop', String(tooMany.status))
+}
 
 // Städa
 const users = await api('GET', '/users')

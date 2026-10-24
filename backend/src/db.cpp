@@ -5,7 +5,9 @@
 
 #include "db_stmt.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -24,7 +26,7 @@ using Lock = std::lock_guard<std::recursive_mutex>;
 // Version 6: mejlcache (mappar, rubriker och meddelandetext).
 // Version 13: ändringsnummer (modseq) och gravstenar i mejlcachen, för Android-appens synk av ändringar.
 // Version 14: enheter som får push-notiser (Android-appen).
-constexpr int kSchemaVersion = 14;
+constexpr int kSchemaVersion = 16;
 
 // MariaDB kör en sats per anrop, så tabellerna skapas var för sig.
 const char* const kSchema[] = {
@@ -37,6 +39,7 @@ const char* const kSchema[] = {
     username      VARCHAR(64) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     is_admin      TINYINT(1) NOT NULL DEFAULT 0,
+    trash_days    INT NOT NULL DEFAULT 30,
     created_at    BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP())
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
 
@@ -266,6 +269,7 @@ const char* const kSchema[] = {
     moved_at      BIGINT NOT NULL,
     undone_at     BIGINT NOT NULL DEFAULT 0,
     job_id        BIGINT NOT NULL DEFAULT 0,
+    rule_id       BIGINT NOT NULL DEFAULT 0,
     INDEX ai_sort_log_job (job_id, id),
     INDEX ai_sort_log_user (user_id, id),
     INDEX ai_sort_log_message (account_id, message_hash),
@@ -312,6 +316,17 @@ const char* const kSchema[] = {
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
 
+    // Första gången varje meddelande sågs i kontots papperskorg, så att det kan tas bort efter users.trash_days
+    // dagar. IMAP ger ingen tid för när ett meddelande flyttades, bara dess ursprungliga datum.
+    R"SQL(CREATE TABLE IF NOT EXISTS trash_seen (
+    account_id   BIGINT NOT NULL,
+    uid_validity INT UNSIGNED NOT NULL,
+    uid          INT UNSIGNED NOT NULL,
+    first_seen   BIGINT NOT NULL,
+    PRIMARY KEY (account_id, uid_validity, uid),
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
+
     R"SQL(CREATE TABLE IF NOT EXISTS ai_sort_examples (
     id            BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id       BIGINT NOT NULL,
@@ -332,17 +347,43 @@ const char* const kSchema[] = {
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
 
-    R"SQL(CREATE TABLE IF NOT EXISTS ai_sender_rules (
+    R"SQL(CREATE TABLE IF NOT EXISTS mail_rules (
+    id         BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id    BIGINT NOT NULL,
+    account_id BIGINT NOT NULL,
+    name       TEXT NOT NULL,
+    enabled    TINYINT(1) NOT NULL DEFAULT 1,
+    position   INT NOT NULL DEFAULT 0,
+    match_all  TINYINT(1) NOT NULL DEFAULT 1,
+    conditions MEDIUMTEXT NOT NULL,
+    actions    MEDIUMTEXT NOT NULL,
+    created_at BIGINT NOT NULL DEFAULT 0,
+    updated_at BIGINT NOT NULL DEFAULT 0,
+    INDEX mail_rules_account (account_id, position, id),
+    INDEX mail_rules_user (user_id, id),
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
+
+    R"SQL(CREATE TABLE IF NOT EXISTS rule_state (
+    account_id    BIGINT NOT NULL PRIMARY KEY,
+    uid_validity  BIGINT NOT NULL DEFAULT 0,
+    last_uid      BIGINT NOT NULL DEFAULT 0,
+    next_check_at BIGINT NOT NULL DEFAULT 0,
+    last_run_at   BIGINT NOT NULL DEFAULT 0,
+    last_error    TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
+
+    R"SQL(CREATE TABLE IF NOT EXISTS rule_dismissed (
     id          BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     user_id     BIGINT NOT NULL,
     account_id  BIGINT NOT NULL,
     sender_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     sender      TEXT NOT NULL,
-    target      TEXT NOT NULL,
-    dismissed   TINYINT(1) NOT NULL DEFAULT 0,
     created_at  BIGINT NOT NULL DEFAULT 0,
-    UNIQUE KEY ai_sender_rules_sender (account_id, sender_hash),
-    INDEX ai_sender_rules_user (user_id, id),
+    UNIQUE KEY rule_dismissed_sender (account_id, sender_hash),
+    INDEX rule_dismissed_user (user_id, id),
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci)SQL",
@@ -380,7 +421,7 @@ const char* kAccountColumns =
     "id, user_id, name, email, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, "
     "username, smtp_username, password_enc, tls_verify, signature, auth_type, oauth_token_enc, signature_html";
 
-const char* kUserColumns = "id, username, is_admin, created_at";
+const char* kUserColumns = "id, username, is_admin, trash_days, created_at";
 
 const char* kDriveColumns = "id, user_id, email, refresh_token_enc, folder_id, created_at";
 
@@ -390,13 +431,18 @@ const char* kRunColumns =
     "id, user_id, job_id, status, config, progress, message, file_path, file_size, created_at, started_at, "
     "finished_at, expires_at";
 
+const char* kRuleColumns =
+    "id, user_id, account_id, name, enabled, position, match_all, conditions, actions, created_at, updated_at";
+
+const char* kRuleStateColumns = "account_id, uid_validity, last_uid, next_check_at, last_run_at, last_error";
+
 const char* kAutoRuleColumns =
     "account_id, user_id, enabled, targets, interval_minutes, uid_validity, last_uid, next_check_at, last_run_at, "
     "last_error";
 
 const char* kSortLogColumns =
     "id, user_id, account_id, message_id, subject, sender, source_folder, target_folder, reason, moved_at, undone_at, "
-    "job_id";
+    "job_id, rule_id";
 
 const char* kSortJobColumns =
     "id, user_id, account_id, folder, targets, unread_only, state, before_uid, total, processed, moved, undo_cursor, "
@@ -489,6 +535,29 @@ void Database::migrate() {
         exec("ALTER TABLE cache_messages ADD INDEX IF NOT EXISTS cache_messages_modseq (modseq)");
         exec("ALTER TABLE cache_folders ADD COLUMN IF NOT EXISTS reset_modseq BIGINT NOT NULL DEFAULT 0 AFTER reconciled_at");
     }
+    if (current < 15) {
+        // Tömning av papperskorgen efter ett antal dagar (0 = aldrig). Tabellen trash_seen skapas av kSchema.
+        exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS trash_days INT NOT NULL DEFAULT 30 AFTER is_admin");
+    }
+    if (current < 16) {
+        // Regler för inkommande post ersätter AI-sorteringens avsändarregler. De gamla reglerna blir regler med ett
+        // villkor på avsändaren (adress eller domän) och flytt till samma mapp; "ligger kvar" blir en regel som bara
+        // stoppar. Nej tack till ett förslag flyttas till rule_dismissed. Tabellen skapas först om den saknas, så att
+        // en ny databas också går igenom steget.
+        exec("CREATE TABLE IF NOT EXISTS ai_sender_rules (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, user_id BIGINT "
+             "NOT NULL, account_id BIGINT NOT NULL, sender_hash CHAR(64) NOT NULL, sender TEXT NOT NULL, target TEXT NOT "
+             "NULL, dismissed TINYINT(1) NOT NULL DEFAULT 0, created_at BIGINT NOT NULL DEFAULT 0)");
+        exec("INSERT INTO mail_rules (user_id, account_id, name, enabled, position, match_all, conditions, actions, "
+             "created_at, updated_at) SELECT user_id, account_id, sender, 1, id, 1, "
+             "CONCAT('[{\"field\":\"from\",\"op\":\"', IF(LEFT(sender, 1) = '@', 'domain', 'is'), '\",\"value\":', "
+             "JSON_QUOTE(sender), '}]'), "
+             "IF(target = '', '{\"stop\":true}', CONCAT('{\"move\":', JSON_QUOTE(target), ',\"stop\":true}')), "
+             "created_at, created_at FROM ai_sender_rules WHERE dismissed = 0 ORDER BY id");
+        exec("INSERT IGNORE INTO rule_dismissed (user_id, account_id, sender_hash, sender, created_at) "
+             "SELECT user_id, account_id, sender_hash, sender, created_at FROM ai_sender_rules WHERE dismissed = 1");
+        exec("DROP TABLE ai_sender_rules");
+        exec("ALTER TABLE ai_sort_log ADD COLUMN IF NOT EXISTS rule_id BIGINT NOT NULL DEFAULT 0 AFTER job_id");
+    }
     // Framtida schemaändringar läggs här: if (current < 3) { ... }
     exec("DELETE FROM schema_version");
     Stmt(db_, "INSERT INTO schema_version (version) VALUES (?)").bind(1, kSchemaVersion).run();
@@ -510,7 +579,8 @@ User Database::rowToUser(Stmt& s) {
     u.id = s.int64(0);
     u.username = s.text(1);
     u.isAdmin = s.int32(2) != 0;
-    u.createdAt = s.int64(3);
+    u.trashDays = s.int32(3);
+    u.createdAt = s.int64(4);
     return u;
 }
 
@@ -548,7 +618,7 @@ std::optional<std::pair<User, std::string>> Database::findUserForLogin(const std
     Lock lock(mutex_);
     Stmt s(db_, std::string("SELECT ") + kUserColumns + ", password_hash FROM users WHERE username = ?");
     s.bind(1, username);
-    if (s.row()) return std::make_pair(rowToUser(s), s.text(4));
+    if (s.row()) return std::make_pair(rowToUser(s), s.text(5));
     return std::nullopt;
 }
 
@@ -590,6 +660,12 @@ void Database::setUserAdmin(long long id, bool isAdmin) {
     Lock lock(mutex_);
     Stmt s(db_, "UPDATE users SET is_admin = ? WHERE id = ?");
     s.bind(1, isAdmin).bind(2, id).run();
+}
+
+void Database::setUserTrashDays(long long id, int days) {
+    Lock lock(mutex_);
+    Stmt s(db_, "UPDATE users SET trash_days = ? WHERE id = ?");
+    s.bind(1, days).bind(2, id).run();
 }
 
 void Database::deleteUser(long long id) {
@@ -659,6 +735,41 @@ void Database::deleteDeviceByToken(const std::string& token) {
     Stmt(db_, "DELETE FROM devices WHERE token_hash = ?").bind(1, tokenHash(token)).run();
 }
 
+// --- Papperskorgen -------------------------------------------------------------
+
+std::map<std::uint32_t, std::int64_t> Database::trashSeen(long long accountId, std::uint32_t uidValidity) {
+    Lock lock(mutex_);
+    Stmt s(db_, "SELECT uid, first_seen FROM trash_seen WHERE account_id = ? AND uid_validity = ?");
+    s.bind(1, accountId).bind(2, static_cast<long long>(uidValidity));
+    std::map<std::uint32_t, std::int64_t> out;
+    while (s.row()) out[static_cast<std::uint32_t>(s.int64(0))] = s.int64(1);
+    return out;
+}
+
+void Database::recordTrashSeen(long long accountId, std::uint32_t uidValidity, const std::vector<std::uint32_t>& uids,
+                               std::int64_t seenAt) {
+    Lock lock(mutex_);
+    writeTx([&] {
+        Stmt(db_, "DELETE FROM trash_seen WHERE account_id = ? AND uid_validity <> ?")
+            .bind(1, accountId).bind(2, static_cast<long long>(uidValidity)).run();
+        for (auto uid : uids) {
+            Stmt(db_, "INSERT IGNORE INTO trash_seen (account_id, uid_validity, uid, first_seen) VALUES (?, ?, ?, ?)")
+                .bind(1, accountId).bind(2, static_cast<long long>(uidValidity)).bind(3, static_cast<long long>(uid))
+                .bind(4, static_cast<long long>(seenAt)).run();
+        }
+    });
+}
+
+void Database::deleteTrashSeen(long long accountId, std::uint32_t uidValidity, const std::vector<std::uint32_t>& uids) {
+    Lock lock(mutex_);
+    writeTx([&] {
+        for (auto uid : uids) {
+            Stmt(db_, "DELETE FROM trash_seen WHERE account_id = ? AND uid_validity = ? AND uid = ?")
+                .bind(1, accountId).bind(2, static_cast<long long>(uidValidity)).bind(3, static_cast<long long>(uid)).run();
+        }
+    });
+}
+
 // --- Sessioner ----------------------------------------------------------------
 
 void Database::createSession(const std::string& tokenHash, long long userId, std::int64_t expiresAt) {
@@ -670,7 +781,7 @@ void Database::createSession(const std::string& tokenHash, long long userId, std
 std::optional<User> Database::userForSession(const std::string& tokenHash, std::int64_t now) {
     Lock lock(mutex_);
     Stmt s(db_,
-           "SELECT u.id, u.username, u.is_admin, u.created_at FROM sessions s JOIN users u ON u.id = s.user_id "
+           "SELECT u.id, u.username, u.is_admin, u.trash_days, u.created_at FROM sessions s JOIN users u ON u.id = s.user_id "
            "WHERE s.token_hash = ? AND s.expires_at > ?");
     s.bind(1, tokenHash).bind(2, static_cast<long long>(now));
     if (s.row()) return rowToUser(s);
@@ -1329,18 +1440,6 @@ AiSortExample rowToExample(Stmt& s) {
     return e;
 }
 
-AiSenderRule rowToSenderRule(Stmt& s) {
-    AiSenderRule r;
-    r.id = s.int64(0);
-    r.userId = s.int64(1);
-    r.accountId = s.int64(2);
-    r.sender = s.text(3);
-    r.target = s.text(4);
-    r.dismissed = s.int32(5) != 0;
-    r.createdAt = s.int64(6);
-    return r;
-}
-
 std::string senderHash(const std::string& sender) {
     return crypto::toHex(crypto::sha256(sender));
 }
@@ -1439,47 +1538,175 @@ void Database::clearAiSortExamples(long long userId) {
     Stmt(db_, "DELETE FROM ai_sort_examples WHERE user_id = ?").bind(1, userId).run();
 }
 
-void Database::saveAiSenderRule(const AiSenderRule& r) {
+namespace {
+
+MailRule rowToRule(Stmt& s) {
+    MailRule r;
+    r.id = s.int64(0);
+    r.userId = s.int64(1);
+    r.accountId = s.int64(2);
+    r.name = s.text(3);
+    r.enabled = s.int32(4) != 0;
+    r.position = s.int32(5);
+    r.matchAll = s.int32(6) != 0;
+    r.conditions = s.text(7);
+    r.actions = s.text(8);
+    r.createdAt = s.int64(9);
+    r.updatedAt = s.int64(10);
+    return r;
+}
+
+RuleState rowToRuleState(Stmt& s) {
+    RuleState r;
+    r.accountId = s.int64(0);
+    r.uidValidity = s.int64(1);
+    r.lastUid = s.int64(2);
+    r.nextCheckAt = s.int64(3);
+    r.lastRunAt = s.int64(4);
+    r.lastError = s.text(5);
+    return r;
+}
+
+}  // namespace
+
+std::vector<MailRule> Database::listRules(long long userId) {
     Lock lock(mutex_);
-    Stmt s(db_, "INSERT INTO ai_sender_rules (user_id, account_id, sender_hash, sender, target, dismissed, created_at) "
-                "VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE target = VALUES(target), dismissed = VALUES(dismissed), "
-                "created_at = VALUES(created_at)");
-    s.bind(1, r.userId).bind(2, r.accountId).bind(3, senderHash(r.sender)).bind(4, r.sender).bind(5, r.target)
-        .bind(6, r.dismissed).bind(7, static_cast<long long>(r.createdAt));
+    Stmt s(db_, std::string("SELECT ") + kRuleColumns + " FROM mail_rules WHERE user_id = ? ORDER BY account_id, position, id");
+    s.bind(1, userId);
+    std::vector<MailRule> out;
+    while (s.row()) out.push_back(rowToRule(s));
+    return out;
+}
+
+std::vector<MailRule> Database::rulesFor(long long accountId) {
+    Lock lock(mutex_);
+    Stmt s(db_, std::string("SELECT ") + kRuleColumns + " FROM mail_rules WHERE account_id = ? ORDER BY position, id");
+    s.bind(1, accountId);
+    std::vector<MailRule> out;
+    while (s.row()) out.push_back(rowToRule(s));
+    return out;
+}
+
+std::optional<MailRule> Database::getRule(long long id) {
+    Lock lock(mutex_);
+    Stmt s(db_, std::string("SELECT ") + kRuleColumns + " FROM mail_rules WHERE id = ?");
+    s.bind(1, id);
+    if (s.row()) return rowToRule(s);
+    return std::nullopt;
+}
+
+long long Database::addRule(const MailRule& r) {
+    Lock lock(mutex_);
+    long long position = 0;
+    {
+        Stmt s(db_, "SELECT COALESCE(MAX(position), 0) + 1 FROM mail_rules WHERE account_id = ?");
+        s.bind(1, r.accountId);
+        s.row();
+        position = s.int64(0);
+    }
+    Stmt s(db_, "INSERT INTO mail_rules (user_id, account_id, name, enabled, position, match_all, conditions, actions, "
+                "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    s.bind(1, r.userId).bind(2, r.accountId).bind(3, r.name).bind(4, r.enabled).bind(5, position).bind(6, r.matchAll)
+        .bind(7, r.conditions).bind(8, r.actions).bind(9, static_cast<long long>(r.createdAt))
+        .bind(10, static_cast<long long>(r.updatedAt));
+    if (!s.run()) throw std::runtime_error("Could not save the rule");
+    return s.insertId();
+}
+
+void Database::updateRule(const MailRule& r) {
+    Lock lock(mutex_);
+    Stmt s(db_, "UPDATE mail_rules SET name = ?, enabled = ?, match_all = ?, conditions = ?, actions = ?, updated_at = ? "
+                "WHERE id = ? AND user_id = ?");
+    s.bind(1, r.name).bind(2, r.enabled).bind(3, r.matchAll).bind(4, r.conditions).bind(5, r.actions)
+        .bind(6, static_cast<long long>(r.updatedAt)).bind(7, r.id).bind(8, r.userId);
     if (!s.run()) throw std::runtime_error("Could not save the rule");
 }
 
-std::vector<AiSenderRule> Database::listAiSenderRules(long long userId) {
+bool Database::deleteRule(long long id, long long userId) {
     Lock lock(mutex_);
-    Stmt s(db_, "SELECT id, user_id, account_id, sender, target, dismissed, created_at FROM ai_sender_rules "
-                "WHERE user_id = ? ORDER BY account_id, sender");
-    s.bind(1, userId);
-    std::vector<AiSenderRule> out;
-    while (s.row()) out.push_back(rowToSenderRule(s));
-    return out;
-}
-
-std::vector<AiSenderRule> Database::aiSenderRulesFor(long long accountId) {
-    Lock lock(mutex_);
-    Stmt s(db_, "SELECT id, user_id, account_id, sender, target, dismissed, created_at FROM ai_sender_rules "
-                "WHERE account_id = ? AND dismissed = 0");
-    s.bind(1, accountId);
-    std::vector<AiSenderRule> out;
-    while (s.row()) out.push_back(rowToSenderRule(s));
-    return out;
-}
-
-bool Database::deleteAiSenderRule(long long id, long long userId) {
-    Lock lock(mutex_);
-    Stmt s(db_, "DELETE FROM ai_sender_rules WHERE id = ? AND user_id = ?");
+    Stmt s(db_, "DELETE FROM mail_rules WHERE id = ? AND user_id = ?");
     s.bind(1, id).bind(2, userId);
     return s.run() && s.affectedRows() > 0;
 }
 
+void Database::reorderRules(long long accountId, const std::vector<long long>& ids) {
+    Lock lock(mutex_);
+    int position = 1;
+    for (long long id : ids) {
+        Stmt s(db_, "UPDATE mail_rules SET position = ? WHERE id = ? AND account_id = ?");
+        s.bind(1, position++).bind(2, id).bind(3, accountId).run();
+    }
+    // Regler som inte nämndes behåller sin inbördes ordning efter de nämnda.
+    Stmt rest(db_, "SELECT id FROM mail_rules WHERE account_id = ? ORDER BY position, id");
+    rest.bind(1, accountId);
+    std::vector<long long> others;
+    while (rest.row()) {
+        long long id = rest.int64(0);
+        if (std::find(ids.begin(), ids.end(), id) == ids.end()) others.push_back(id);
+    }
+    for (long long id : others) {
+        Stmt s(db_, "UPDATE mail_rules SET position = ? WHERE id = ?");
+        s.bind(1, position++).bind(2, id).run();
+    }
+}
+
+std::optional<RuleState> Database::getRuleState(long long accountId) {
+    Lock lock(mutex_);
+    Stmt s(db_, std::string("SELECT ") + kRuleStateColumns + " FROM rule_state WHERE account_id = ?");
+    s.bind(1, accountId);
+    if (s.row()) return rowToRuleState(s);
+    return std::nullopt;
+}
+
+void Database::saveRuleState(const RuleState& r) {
+    Lock lock(mutex_);
+    Stmt s(db_, "INSERT INTO rule_state (account_id, uid_validity, last_uid, next_check_at, last_run_at, last_error) "
+                "VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE uid_validity = VALUES(uid_validity), last_uid = VALUES(last_uid), "
+                "next_check_at = VALUES(next_check_at), last_run_at = VALUES(last_run_at), last_error = VALUES(last_error)");
+    s.bind(1, r.accountId).bind(2, static_cast<long long>(r.uidValidity)).bind(3, static_cast<long long>(r.lastUid))
+        .bind(4, static_cast<long long>(r.nextCheckAt)).bind(5, static_cast<long long>(r.lastRunAt)).bind(6, r.lastError);
+    if (!s.run()) throw std::runtime_error("Could not save the rule state");
+}
+
+std::vector<RuleState> Database::dueRuleStates(std::int64_t now) {
+    Lock lock(mutex_);
+    // Konton med minst en påslagen regel. Ett konto utan sparat läge är förfallet: första kontrollen sätter märket.
+    Stmt s(db_, "SELECT a.id, COALESCE(s.uid_validity, 0), COALESCE(s.last_uid, 0), COALESCE(s.next_check_at, 0), "
+                "COALESCE(s.last_run_at, 0), COALESCE(s.last_error, '') FROM accounts a LEFT JOIN rule_state s ON s.account_id = a.id "
+                "WHERE EXISTS (SELECT 1 FROM mail_rules r WHERE r.account_id = a.id AND r.enabled = 1) "
+                "AND COALESCE(s.next_check_at, 0) <= ? ORDER BY a.id");
+    s.bind(1, static_cast<long long>(now));
+    std::vector<RuleState> out;
+    while (s.row()) out.push_back(rowToRuleState(s));
+    return out;
+}
+
+void Database::setRuleCheckDue(long long accountId) {
+    Lock lock(mutex_);
+    Stmt s(db_, "UPDATE rule_state SET next_check_at = 0 WHERE account_id = ?");
+    s.bind(1, accountId).run();
+}
+
+std::vector<DismissedSender> Database::listDismissedSenders(long long userId) {
+    Lock lock(mutex_);
+    Stmt s(db_, "SELECT account_id, sender FROM rule_dismissed WHERE user_id = ?");
+    s.bind(1, userId);
+    std::vector<DismissedSender> out;
+    while (s.row()) out.push_back({s.int64(0), s.text(1)});
+    return out;
+}
+
+void Database::addDismissedSender(long long userId, long long accountId, const std::string& sender) {
+    Lock lock(mutex_);
+    Stmt s(db_, "INSERT IGNORE INTO rule_dismissed (user_id, account_id, sender_hash, sender, created_at) VALUES (?,?,?,?,?)");
+    s.bind(1, userId).bind(2, accountId).bind(3, senderHash(sender)).bind(4, sender)
+        .bind(5, static_cast<long long>(std::time(nullptr)));
+    s.run();
+}
+
 void Database::renameAiLearningFolder(long long accountId, const std::string& from, const std::string& to) {
     Lock lock(mutex_);
-    static const std::pair<const char*, const char*> columns[] = {{"ai_sender_rules", "target"},
-                                                                  {"ai_sort_examples", "source_folder"},
+    static const std::pair<const char*, const char*> columns[] = {{"ai_sort_examples", "source_folder"},
                                                                   {"ai_sort_examples", "suggested"},
                                                                   {"ai_sort_examples", "chosen"}};
     for (const auto& [table, column] : columns) {
@@ -1630,16 +1857,17 @@ AiSortLogEntry Database::rowToAiSortLogEntry(Stmt& s) {
     e.movedAt = s.int64(9);
     e.undoneAt = s.int64(10);
     e.jobId = s.int64(11);
+    e.ruleId = s.int64(12);
     return e;
 }
 
 long long Database::addAiSortLog(const AiSortLogEntry& e) {
     Lock lock(mutex_);
     Stmt s(db_, "INSERT INTO ai_sort_log (user_id, account_id, message_hash, message_id, subject, sender, "
-                "source_folder, target_folder, reason, moved_at, job_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+                "source_folder, target_folder, reason, moved_at, job_id, rule_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
     s.bind(1, e.userId).bind(2, e.accountId).bind(3, crypto::toHex(crypto::sha256(e.messageId))).bind(4, e.messageId)
         .bind(5, e.subject).bind(6, e.sender).bind(7, e.sourceFolder).bind(8, e.targetFolder).bind(9, e.reason)
-        .bind(10, static_cast<long long>(e.movedAt)).bind(11, e.jobId);
+        .bind(10, static_cast<long long>(e.movedAt)).bind(11, e.jobId).bind(12, e.ruleId);
     if (!s.run()) throw std::runtime_error("Could not save the sorting history");
     return s.insertId();
 }

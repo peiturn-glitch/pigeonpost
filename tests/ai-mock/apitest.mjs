@@ -442,10 +442,11 @@ log(againDone.moved === finished.moved - 1 && (await inboxTotal()) === inboxBefo
 const cancelled = await api('POST', `/ai/jobs/${again.data.jobs[0].id}/cancel`)
 log(cancelled.status === 400, 'ett färdigt jobb går inte att avbryta', String(cancelled.status))
 
-// 9. Inlärning: rättningar blir exempel för AI:n, och upprepade val blir avsändarregler
+// 9. Inlärning: rättningar blir exempel för AI:n, och upprepade val blir förslag på regler (som sköts av /api/rules)
 const learning = async (as = api) => (await as('GET', '/ai/learning')).data
 const feedback = (decisions, as = api) => as('POST', `/accounts/${accountId}/ai-feedback`, { folder: 'INBOX', decisions })
-const saveRule = (rule, as = api) => as('POST', `/accounts/${accountId}/ai-rules`, rule)
+const saveRule = (rule, as = api) => as('POST', `/accounts/${accountId}/rules`, rule)
+const fromRule = (op, value, actions, name = 'Regel') => ({ name, conditions: [{ field: 'from', op, value }], actions })
 const earlier = await learning()
 log(earlier.corrections.length >= 1 && earlier.corrections.every((c) => c.chosen === '' && c.suggested), 'flyttarna som ångrades tidigare i testet har blivit rättningar', String(earlier.corrections.length))
 await api('DELETE', '/ai/examples')
@@ -477,39 +478,42 @@ log((await learning()).suggestions.length === 0, 'två likadana val räcker inte
 const third = await feedback([decision('Faktura för bredband 3', 'Nyhetsbrev', 'Nyhetsbrev')])
 log(third.data.suggestions.length === 1 && third.data.suggestions[0].sender === 'kund@bredband.se' && third.data.suggestions[0].target === 'Nyhetsbrev',
     'tre likadana val i rad ger ett regelförslag', JSON.stringify(third.data.suggestions))
-const dismissed = await saveRule({ sender: 'kund@bredband.se', dismissed: true })
-log(dismissed.data.suggestions.length === 0 && dismissed.data.rules.length === 0, 'nej tack gör att förslaget inte kommer tillbaka')
-const badRules = [await saveRule({ sender: 'ingen adress', target: 'Ekonomi' }), await saveRule({ sender: 'a@b.se', target: 'Finns inte' }), await saveRule({ sender: '@', target: '' })]
+const dismissed = await api('POST', `/accounts/${accountId}/rules/dismiss`, { sender: 'kund@bredband.se' })
+const afterDismiss = await learning()
+log(dismissed.status === 200 && afterDismiss.suggestions.length === 0 && afterDismiss.rules.length === 0, 'nej tack gör att förslaget inte kommer tillbaka')
+const badRules = [await saveRule({ name: 'x', conditions: [], actions: { move: 'Ekonomi' } }), await saveRule(fromRule('is', 'a@b.se', { move: 'Finns inte' })), await saveRule(fromRule('domain', '@', { stop: true }))]
 log(badRules.every((r) => r.status === 400), 'ogiltiga regler avvisas', badRules.map((r) => r.status).join())
-const ruleSet = await saveRule({ sender: 'Kund@Bredband.se', target: 'Ekonomi' })
-log(ruleSet.status === 200 && ruleSet.data.rules.length === 1 && ruleSet.data.rules[0].sender === 'kund@bredband.se' && ruleSet.data.suggestions.length === 0,
-    'en regel går att skapa', JSON.stringify(ruleSet.data.rules))
+const ruleSet = await saveRule(fromRule('is', 'Kund@Bredband.se', { move: 'Ekonomi', stop: true }, 'Bredband'))
+log(ruleSet.status === 200 && ruleSet.data.rules.length === 1 && ruleSet.data.rules[0].conditions[0].value === 'kund@bredband.se' && (await learning()).suggestions.length === 0,
+    'en regel går att skapa, och avsändaren föreslås inte mer', JSON.stringify(ruleSet.data.rules))
 await mockReset()
 const byRule = await suggestOne()
 log(byRule.data.suggestions[0].target === 'Ekonomi' && /Your rule/.test(byRule.data.suggestions[0].reason) && (await mockRequests()).length === 0,
     'regeln gäller före AI:n och kostar inget AI-anrop', JSON.stringify(byRule.data.suggestions[0]))
-await saveRule({ sender: '@bredband.se', target: '' })
-await api('DELETE', `/ai/rules/${ruleSet.data.rules[0].id}`)
+const domainRule = await saveRule(fromRule('domain', '@bredband.se', { stop: true }, 'Domän'))
+const domainRuleId = domainRule.data.savedId
+await api('DELETE', `/rules/${ruleSet.data.savedId}`)
 const byDomain = await suggestOne()
-log(byDomain.data.suggestions[0].target === null && /stays/.test(byDomain.data.suggestions[0].reason), 'en regel för en domän kan låta mejlen ligga kvar', JSON.stringify(byDomain.data.suggestions[0]))
+log(byDomain.data.suggestions[0].target === null && /keeps/.test(byDomain.data.suggestions[0].reason), 'en regel för en domän kan låta mejlen ligga kvar', JSON.stringify(byDomain.data.suggestions[0]))
 
 // Utan granskning: regeln används, men aldrig till papperskorgen
-await saveRule({ sender: '@bredband.se', target: 'Trash' })
+const updateDomainRule = (actions) => api('PUT', `/rules/${domainRuleId}`, fromRule('domain', '@bredband.se', actions, 'Domän'))
+await updateDomainRule({ trash: true })
 const trashJob = await startJob(jobBody)
 await waitForJob(trashJob.data.jobs[0].id, ['done'])
 log((await api('GET', `/accounts/${accountId}/messages?folder=INBOX&q=bredband`)).data.total === 1, 'en regel till papperskorgen används inte i bakgrunden')
 await api('POST', `/accounts/${accountId}/folders`, { path: 'Regelmapp' })
-await saveRule({ sender: '@bredband.se', target: 'Regelmapp' })
+await updateDomainRule({ move: 'Regelmapp', stop: true })
 await api('POST', `/accounts/${accountId}/folders/rename`, { from: 'Regelmapp', to: 'Regelmapp2' })
-log((await learning()).rules[0].target === 'Regelmapp2', 'regeln följer med när mappen byter namn', JSON.stringify((await learning()).rules))
+log((await api('GET', '/rules')).data.rules[0].actions.move === 'Regelmapp2', 'regeln följer med när mappen byter namn', JSON.stringify((await api('GET', '/rules')).data.rules))
 const ruleJob = await startJob(jobBody)
 const ruleJobDone = await waitForJob(ruleJob.data.jobs[0].id, ['done'])
 log(ruleJobDone.movedTo.Regelmapp2 === 1, 'bakgrundssorteringen följer regeln', JSON.stringify(ruleJobDone.movedTo))
 const ruleMove = (await api('GET', '/ai/auto')).data.log.find((e) => e.targetFolder === 'Regelmapp2')
 await api('POST', `/ai/log/${ruleMove.id}/undo`)
 const afterUndo = await learning()
-log(afterUndo.corrections.some((c) => c.email === 'kund@bredband.se' && c.suggested === 'Regelmapp2' && c.chosen === ''),
-    'en ångrad automatisk flytt blir en rättning', JSON.stringify(afterUndo.corrections[0]))
+log(!afterUndo.corrections.some((c) => c.suggested === 'Regelmapp2'), 'en ångrad flytt som en regel gjorde blir ingen rättning för AI:n', JSON.stringify(afterUndo.corrections))
+log(afterUndo.corrections.length >= 1, 'rättningarna från granskningen finns kvar', String(afterUndo.corrections.length))
 
 const oneGone = await api('DELETE', `/ai/examples/${afterUndo.corrections[0].id}`)
 const allGone = await api('DELETE', '/ai/examples')
@@ -539,8 +543,8 @@ log(othersSenders.data.senders.length === 0 && !(await api('GET', '/remote-sende
     (await client()('GET', '/remote-senders')).status === 401, 'betrodda avsändare är egna för varje användare')
 const othersLearning = await learning(other)
 const othersFeedback = await feedback([decision('x', 'Ekonomi')], other)
-const othersSenderRule = await saveRule({ sender: 'a@b.se', target: 'Ekonomi' }, other)
-const othersRuleDelete = await other('DELETE', `/ai/rules/${(await learning()).rules[0].id}`)
+const othersSenderRule = await saveRule(fromRule('is', 'a@b.se', { move: 'Ekonomi' }), other)
+const othersRuleDelete = await other('DELETE', `/rules/${(await learning()).rules[0].id}`)
 log(othersLearning.rules.length === 0 && othersLearning.corrections.length === 0 && othersFeedback.status === 404 && othersSenderRule.status === 404 &&
     othersRuleDelete.status === 404 && (await learning()).rules.length === 1, 'en annan användare kommer inte åt det inlärda',
     [othersFeedback.status, othersSenderRule.status, othersRuleDelete.status].join())

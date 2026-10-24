@@ -57,6 +57,23 @@ function interpret(input) {
   return out
 }
 
+// Förslag på regler ur mapparnas innehåll: en bra regel, en som inte träffar något och några ogiltiga som
+// servern ska sålla bort.
+function suggestRules(input) {
+  const byName = (part) => input.folders.find((f) => f.name.toLowerCase().includes(part))
+  const news = byName('news') || input.folders[0]
+  return {
+    rules: [
+      { name: 'Veckobrev', match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'Weekly' }], folder: news.id, explanation: 'Veckobreven ligger i nyhetsbrevsmappen' },
+      { name: 'Träffar inget', match: 'all', conditions: [{ field: 'subject', op: 'contains', value: 'finnsinte-xyz' }], folder: news.id, explanation: 'Gissning' },
+      { name: 'Påhittad mapp', match: 'all', conditions: [{ field: 'from', op: 'domain', value: '@news.example' }], folder: 999, explanation: 'Fel mapp' },
+      { name: 'Fel operator', match: 'all', conditions: [{ field: 'subject', op: 'regex', value: '.*' }], folder: news.id, explanation: 'Ogiltig' },
+      { name: 'Tom', match: 'all', conditions: [], folder: news.id, explanation: 'Inga villkor' },
+      'skräp',
+    ],
+  }
+}
+
 const server = http.createServer((req, res) => {
   let body = ''
   req.on('data', (chunk) => (body += chunk))
@@ -85,6 +102,8 @@ const server = http.createServer((req, res) => {
     const reply = (content) => send(res, 200, { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content } }] })
     // En sökfråga i stället för meddelanden att sortera.
     if (input.question !== undefined && request.model === 'mock-sorter') return reply(JSON.stringify(interpret(input)))
+    // Regelförslag: mappar med avsändare och ämnesrader i stället för meddelanden.
+    if (input.inboxSample !== undefined && request.model === 'mock-sorter') return reply(JSON.stringify(suggestRules(input)))
 
     switch (request.model) {
       case 'mock-sorter':

@@ -40,6 +40,11 @@ struct Config {
     std::string aiExtraProviders;
     // Mejlcache i databasen (MAIL_CACHE=0 stänger av den; då läses allt direkt från mejlservern som förr).
     bool mailCache = true;
+    // Hur ofta papperskorgarna gås igenom för tömning (sekunder). TRASH_DAY_SECONDS låter testerna räkna
+    // "dagar" i sekunder i stället för 86 400.
+    int trashPurgeInterval = 15 * 60;
+    int trashDaySeconds = 24 * 3600;
+    int ruleCheckSeconds = 5 * 60;  // Hur ofta reglerna letar efter ny post utan mejlcachens hjälp.
     // Hela meddelanden som öppnats nyligen sparas som filer, så att bilagor inte hämtas om. 0 stänger av.
     std::string rawCacheDir;
     int rawCacheMb = 1024;

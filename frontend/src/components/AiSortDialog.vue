@@ -386,11 +386,10 @@ function backToSetup() {
 
 // --- Inlärning -----------------------------------------------------------------
 
-// Regler per avsändare, förslag på nya regler och rättningar som AI:n får som exempel.
+// Regler (hanteras under Regler), förslag på nya regler och rättningar som AI:n får som exempel.
 const learning = ref({ rules: [], suggestions: [], corrections: [], ruleAfter: 3 })
 const learningError = ref('')
 const learningBusy = ref(false)
-const newRule = reactive({ accountId: null, sender: '', target: '' })
 
 async function loadLearning() {
   try {
@@ -429,9 +428,23 @@ async function learningCall(call) {
   }
 }
 
-const acceptSuggestion = (s) => learningCall(() => api.aiRuleSave(s.accountId, { sender: s.sender, target: s.target }))
-const dismissSuggestion = (s) => learningCall(() => api.aiRuleSave(s.accountId, { sender: s.sender, dismissed: true }))
-const deleteRule = (r) => learningCall(() => api.aiRuleDelete(r.id))
+// Ett förslag blir en vanlig regel för inkommande post; att tacka nej tystar avsändaren i förslagen.
+const acceptSuggestion = (s) =>
+  learningCall(async () => {
+    await api.ruleSave(s.accountId, {
+      name: t('Mail from {sender}', { sender: s.name || s.sender }),
+      enabled: true,
+      matchAll: true,
+      conditions: [{ field: 'from', op: 'is', value: s.sender }],
+      actions: s.target ? { move: s.target, stop: true } : { stop: true },
+    })
+    return api.aiLearning()
+  })
+const dismissSuggestion = (s) =>
+  learningCall(async () => {
+    await api.ruleDismiss(s.accountId, s.sender)
+    return api.aiLearning()
+  })
 const deleteCorrection = (c) => learningCall(() => api.aiExampleDelete(c.id))
 
 async function acceptAllSuggestions() {
@@ -443,21 +456,13 @@ async function clearCorrections() {
   await learningCall(() => api.aiExamplesClear())
 }
 
-async function addRule() {
-  await learningCall(() => api.aiRuleSave(newRule.accountId, { sender: newRule.sender, target: newRule.target }))
-  if (!learningError.value) newRule.sender = ''
-}
-
-function ruleFolders(id) {
-  return (store.folders[id] || []).filter((f) => f.selectable && !NEVER_TARGET.includes(f.specialUse))
-}
-
 function targetLabel(id, path) {
   return path ? folderLabelByPath(id, path) : t('stays in place')
 }
 
-function accountEmail(id) {
-  return store.accounts.find((a) => a.id === id)?.email || ''
+function openRules() {
+  store.aiDialog = false
+  store.rulesDialog = true
 }
 
 // --- Hela mappen i bakgrunden -------------------------------------------------
@@ -675,7 +680,6 @@ onMounted(async () => {
     loadExcluded()
     if (!presetUids.value) loadCursor()
     if (ai.value.configured) loadJobs()
-    newRule.accountId = accountId.value
     loadLearning()
   } catch (e) {
     loadError.value = e.message
@@ -849,7 +853,7 @@ onBeforeUnmount(() => {
               }}
               <template v-if="learning.rules.length || learning.corrections.length">
                 {{
-                  t('Sorting uses {rules} sender rules and learns from {corrections} corrections (see Settings).', {
+                  t('Sorting uses {rules} rules and learns from {corrections} corrections (see Settings).', {
                     rules: learning.rules.length,
                     corrections: learning.corrections.length,
                   })
@@ -1103,34 +1107,17 @@ onBeforeUnmount(() => {
             <p class="muted note">
               {{
                 t(
-                  'When you change the folder of a suggestion, decline it or undo an automatic move, it is saved as a correction. The AI gets the most relevant corrections as examples with every sort. Sender rules take precedence over the AI, also for automatic sorting and in the background (but never to the trash without review).',
+                  'When you change the folder of a suggestion, decline it or undo an automatic move, it is saved as a correction. The AI gets the most relevant corrections as examples with every sort. Rules take precedence over the AI, also for automatic sorting and in the background.',
                 )
               }}
             </p>
             <p v-if="learningError" class="error-text">{{ learningError }}</p>
 
-            <h4>{{ t('Sender rules') }} <span class="muted">({{ learning.rules.length }})</span></h4>
-            <div v-if="learning.rules.length" class="learned-list">
-              <div v-for="r in learning.rules" :key="r.id" class="learned-row">
-                <span class="grow" :title="accountEmail(r.accountId)">
-                  <strong>{{ r.sender }}</strong> → {{ targetLabel(r.accountId, r.target) }}
-                  <span v-if="r.target && !store.folderInfo(r.accountId, r.target)" class="error-text">{{ t('(the folder no longer exists)') }}</span>
-                  <span v-if="store.accounts.length > 1" class="muted"> · {{ accountEmail(r.accountId) }}</span>
-                </span>
-                <button class="btn small ghost" type="button" :title="t('Delete rule')" :disabled="learningBusy" @click="deleteRule(r)"><Icon name="close" :size="12" /></button>
-              </div>
-            </div>
-            <div class="rule-form">
-              <select v-if="store.accounts.length > 1" v-model="newRule.accountId" class="input auto">
-                <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.email }}</option>
-              </select>
-              <input v-model="newRule.sender" class="input" :placeholder="t('name@example.com or @example.com')" spellcheck="false" @keydown.enter.prevent="addRule" />
-              <select v-model="newRule.target" class="input auto">
-                <option value="">{{ t('– Leave in place –') }}</option>
-                <option v-for="f in ruleFolders(newRule.accountId)" :key="f.path" :value="f.path">{{ folderName(f) }}</option>
-              </select>
-              <button class="btn" type="button" :disabled="learningBusy || !newRule.sender.trim() || !newRule.accountId" @click="addRule">{{ t('Add rule') }}</button>
-            </div>
+            <p class="rules-link">
+              {{ t('Rules for incoming mail are managed under Rules.') }}
+              <span v-if="learning.rules.length" class="muted">({{ t('{n} rules', { n: learning.rules.length }) }})</span>
+              <button class="btn small" type="button" @click="openRules"><Icon name="filter" :size="12" /> {{ t('Open Rules') }}</button>
+            </p>
 
             <h4>
               {{ t('Corrections') }} <span class="muted">({{ learning.corrections.length }}{{ learning.corrections.length >= 200 ? '+' : '' }})</span>
@@ -1308,7 +1295,7 @@ label.inline > span {
 
 .rule-suggestion,
 .learned-row,
-.rule-form {
+.rules-link {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1369,13 +1356,8 @@ label.inline > span {
   white-space: nowrap;
 }
 
-.rule-form {
+.rules-link {
   flex-wrap: wrap;
-}
-
-.rule-form input {
-  flex: 1;
-  min-width: 200px;
 }
 
 .jobs {

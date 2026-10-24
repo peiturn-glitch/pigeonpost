@@ -87,6 +87,8 @@ public:
     json status(const std::vector<Account>& accounts);
     // Startar en synk av kontot nu och väntar högst waitSeconds på att den blir klar.
     json syncNow(const Account& account, int waitSeconds);
+    // Anropas (från synktråden) när ny post har sparats från ett kontos inkorg, så att reglerna kan köras direkt.
+    void setNewInboxMailListener(std::function<void(long long accountId)> listener);
 
 private:
     struct AccountState {
@@ -130,6 +132,7 @@ private:
     MailService& mail_;
     RawCache& rawCache_;
     PushService* push_;
+    std::function<void(long long)> newInboxMail_;
 
     std::mutex mutex_;
     std::condition_variable wake_;

@@ -115,6 +115,17 @@ function onScroll() {
   if (el.scrollTop + el.clientHeight > el.scrollHeight - 200) store.loadMessages({ append: true })
 }
 
+// Öppnar regeldialogen med ett villkor på meddelandets avsändare förifyllt.
+function createRule(m) {
+  const sender = m.from?.[0]
+  const email = (sender?.email || '').toLowerCase()
+  if (!email) return
+  store.rulesDialog = {
+    accountId: m.accountId ?? store.current.accountId,
+    prefill: { name: t('Mail from {sender}', { sender: sender.name || email }), conditions: [{ field: 'from', op: 'is', value: email }] },
+  }
+}
+
 function rowMenu(event, m) {
   if (!store.selection.has(m.key)) store.selectMessage(m.key)
   const selected = store.selectedMessages
@@ -138,6 +149,7 @@ function rowMenu(event, m) {
                 (store.aiDialog = { accountId: store.current.accountId, folder: store.current.folder, uids: selected.map((x) => x.uid) }),
             },
           ]),
+      { label: t('Create rule from message…'), action: () => createRule(m) },
       { label: t('Move to archive'), action: () => store.archive() },
       { label: t('Mark as junk'), action: () => store.markJunk() },
       { label: t('Delete'), danger: true, action: () => store.deleteMessages() },

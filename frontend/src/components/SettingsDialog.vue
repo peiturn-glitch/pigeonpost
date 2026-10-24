@@ -7,6 +7,16 @@ import Icon from './Icon.vue'
 const store = useMailStore()
 const layout = store.layout
 
+// Hur länge meddelanden ligger i papperskorgen innan servern tar bort dem (0 = aldrig). Sparas per användare på
+// servern, så valet gäller även i appen. Ett värde som inte finns i listan (satt via API:t) visas ändå.
+const TRASH_CHOICES = [0, 7, 14, 30, 90]
+const trashDays = computed(() => store.user?.trashDays ?? 0)
+const trashOptions = computed(() =>
+  (TRASH_CHOICES.includes(trashDays.value) ? TRASH_CHOICES : [...TRASH_CHOICES, trashDays.value].sort((a, b) => a - b)).map(
+    (n) => ({ value: n, label: n === 0 ? t('Never') : n === 1 ? t('After 1 day') : t('After {n} days', { n }) }),
+  ),
+)
+
 // Labels are translated with t() when rendered, so a language change updates them.
 const folderOptions = [
   { value: 'left', label: 'Left' },
@@ -54,7 +64,7 @@ function resetSizes() {
 }
 
 function close() {
-  store.layoutDialog = false
+  store.settingsDialog = false
 }
 
 function onKey(event) {
@@ -68,11 +78,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   <div class="modal-backdrop" @click.self="close">
     <div class="modal layout-dialog">
       <div class="modal-header">
-        <h2>{{ t('Layout') }}</h2>
+        <h2>{{ t('Settings') }}</h2>
         <button class="btn ghost" :title="t('Close')" @click="close"><Icon name="close" /></button>
       </div>
 
       <div class="content">
+        <h3 class="section-title">{{ t('Layout') }}</h3>
         <div class="presets">
           <button
             v-for="preset in presets"
@@ -119,12 +130,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         <!-- eslint-disable-next-line vue/no-v-html -->
         <p class="muted hint" v-html="hintHtml" />
 
-        <label class="language-row">
-          <span class="language-label">{{ t('Language') }}</span>
-          <select class="input language-select" :value="lang" @change="setLanguage($event.target.value)">
-            <option v-for="l in LANGUAGES" :key="l.code" :value="l.code">{{ l.name }}</option>
-          </select>
-        </label>
+        <div class="prefs">
+          <label class="pref-row">
+            <span class="pref-label">{{ t('Language') }}</span>
+            <select class="input pref-select" :value="lang" @change="setLanguage($event.target.value)">
+              <option v-for="l in LANGUAGES" :key="l.code" :value="l.code">{{ l.name }}</option>
+            </select>
+          </label>
+          <label class="pref-row">
+            <span class="pref-label">{{ t('Empty trash automatically') }}</span>
+            <select class="input pref-select" :value="trashDays" @change="store.saveSettings({ trashDays: Number($event.target.value) })">
+              <option v-for="o in trashOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+            </select>
+          </label>
+          <p class="muted hint pref-hint">
+            {{ t('Messages that have been in the trash longer than this are deleted for good. The time counts from when a message ended up in the trash, also when it was deleted from another email program.') }}
+          </p>
+        </div>
       </div>
 
       <div class="modal-footer">
@@ -289,21 +311,38 @@ legend {
   background: var(--pane-alt);
 }
 
-.language-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
-.language-label {
+.section-title {
+  margin: 0 0 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 
-.language-select {
+.prefs {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pref-label {
+  font-weight: 600;
+  min-width: 200px;
+}
+
+.pref-select {
   width: auto;
+}
+
+.pref-hint {
+  margin: 0;
 }
 
 .spacer {

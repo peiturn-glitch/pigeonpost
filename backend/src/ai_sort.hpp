@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "db.hpp"
 #include "mail_service.hpp"
+#include "rules.hpp"
 
 #include <condition_variable>
 #include <mutex>
@@ -33,7 +34,7 @@ public:
     static constexpr std::size_t kSnippetChars = 500;  // Tecken av meddelandets text som skickas med.
     static constexpr std::size_t kMaxExcluded = 5000;  // Bortvalda mappar som sparas per konto.
 
-    AiSorter(const Config& config, Database& db, MailService& mail);
+    AiSorter(const Config& config, Database& db, MailService& mail, RuleEngine& rules);
     ~AiSorter();
     AiSorter(const AiSorter&) = delete;
     AiSorter& operator=(const AiSorter&) = delete;
@@ -73,14 +74,12 @@ public:
     // action: pause, resume, cancel eller undo (flyttar tillbaka allt jobbet har flyttat, också i bakgrunden).
     json jobAction(long long userId, long long jobId, const std::string& action);
 
-    // Det sorteringen har lärt sig av användaren: fasta avsändarregler, förslag på nya regler och rättningar.
+    // Det sorteringen har lärt sig av användaren: förslag på nya regler och rättningar. Reglerna själva sköts av
+    // RuleEngine; ett förslag här blir en regel på avsändaren via dess API.
     json learningState(long long userId);
     // Beslut från granskningen. body: {folder, decisions: [{email, name, subject, suggested, chosen}]}, där tom mapp
     // betyder att meddelandet ligger kvar. Rättningar blir exempel för AI:n, och upprepade beslut blir regelförslag.
     json feedback(long long userId, long long accountId, const json& body);
-    // body: {sender, target, dismissed?}. sender är en adress eller en domän ("@exempel.se"); tom target = ligger kvar.
-    json saveSenderRule(long long userId, long long accountId, const json& body);
-    json deleteSenderRule(long long userId, long long ruleId);
     json deleteExample(long long userId, long long exampleId);
     json clearExamples(long long userId);
 
@@ -102,6 +101,7 @@ private:
         std::uint32_t uid = 0;
         std::string target;  // Tom = ligger kvar.
         std::string reason;
+        long long ruleId = 0;  // Regeln som avgjorde, när det inte var AI:n.
     };
 
     std::vector<Target> targetFolders(long long accountId, const std::string& source,
@@ -109,8 +109,8 @@ private:
     std::vector<Suggestion> askModel(const AiSettings& settings, const std::string& folder,
                                      const std::vector<Target>& targets, const std::vector<MessageSummary>& summaries,
                                      bool unattended, const json& corrections);
-    // Förslag för varje meddelande, i samma ordning som summaries. Användarens avsändarregler går först och kostar
-    // inget AI-anrop; resten frågas AI:n om, med användarens tidigare rättningar som exempel.
+    // Förslag för varje meddelande, i samma ordning som summaries. Användarens regler går först och kostar inget
+    // AI-anrop; resten frågas AI:n om, med användarens tidigare rättningar som exempel.
     std::vector<Suggestion> classify(const AiSettings& settings, long long accountId, const std::string& folder,
                                      const std::vector<Target>& targets, const std::vector<MessageSummary>& summaries,
                                      bool unattended);
@@ -132,6 +132,7 @@ private:
 
     Database& db_;
     MailService& mail_;
+    RuleEngine& rules_;
     std::vector<AiProvider> providers_;
 
     std::mutex prefsMutex_;  // Skyddar läs-ändra-spara av det sparade valet vid manuell sortering.

@@ -70,6 +70,9 @@ Config Config::fromEnvironment() {
 
     std::filesystem::create_directories(c.dataDir);
     c.mailCache = env("MAIL_CACHE", "1") != "0";
+    c.trashPurgeInterval = std::max(1, std::stoi(env("TRASH_PURGE_INTERVAL", std::to_string(c.trashPurgeInterval))));
+    c.trashDaySeconds = std::max(1, std::stoi(env("TRASH_DAY_SECONDS", std::to_string(c.trashDaySeconds))));
+    c.ruleCheckSeconds = std::max(1, std::stoi(env("RULE_CHECK_SECONDS", std::to_string(c.ruleCheckSeconds))));
     c.rawCacheDir = env("BREVDUVA_RAW_CACHE_DIR", (std::filesystem::path(c.dataDir) / "cache" / "raw").string());
     c.rawCacheMb = std::max(0, std::stoi(env("RAW_CACHE_MB", std::to_string(c.rawCacheMb))));
     c.backupDir = env("BREVDUVA_BACKUP_DIR", (std::filesystem::path(c.dataDir) / "backups").string());

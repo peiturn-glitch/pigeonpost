@@ -127,6 +127,9 @@ std::uint32_t parseUid(const std::string& s) {
     }
 }
 
+constexpr std::size_t kBulkBodies = 100;                   // Meddelanden per anrop till /messages/bodies.
+constexpr std::size_t kBulkBodyBytes = 8 * 1024 * 1024;    // Ungefärlig gräns för text och HTML i ett svar.
+
 MessageRef refFromQuery(const Request& req) {
     return {requiredParam(req, "folder"), parseUid(requiredParam(req, "uid"))};
 }
@@ -186,7 +189,7 @@ std::string encodeFilename(const std::string& name) {
 }
 
 json userJson(const User& u) {
-    return {{"id", u.id}, {"username", u.username}, {"isAdmin", u.isAdmin}, {"createdAt", u.createdAt}};
+    return {{"id", u.id}, {"username", u.username}, {"isAdmin", u.isAdmin}, {"trashDays", u.trashDays}, {"createdAt", u.createdAt}};
 }
 
 json identityJson(const Identity& i) {
@@ -531,7 +534,8 @@ std::string joinNames(const std::vector<std::string>& names) {
 }  // namespace
 
 void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService& mail, GoogleOAuth& oauth,
-                 BackupService& backup, AiSorter& aiSorter, MailCache* mailCache, PushService* push) {
+                 BackupService& backup, AiSorter& aiSorter, RuleEngine& rules, TrashPurger& trash,
+                 MailCache* mailCache, PushService* push) {
     // CSRF-skydd: ändrande anrop måste bära en egen header, som webbläsare inte skickar cross-site utan CORS.
     server.set_pre_routing_handler([](const Request& req, Response& res) {
         if (req.path.rfind("/api/", 0) != 0) return httplib::Server::HandlerResponse::Unhandled;
@@ -609,6 +613,24 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         db.setUserPassword(user.id, crypto::hashPassword(next));
         auth.destroyOtherSessions(user.id, sessionToken(req));
         sendJson(res, {{"ok", true}});
+    }));
+
+    // --- Inställningar per användare ----------------------------------------
+    server.Get("/api/settings", authed([](const Request&, Response& res, const User& user) {
+        sendJson(res, {{"trashDays", user.trashDays}});
+    }));
+
+    // trashDays: meddelanden som legat så här många dagar i papperskorgen tas bort automatiskt; 0 = aldrig.
+    server.Put("/api/settings", authed([&db, &trash](const Request& req, Response& res, const User& user) {
+        json body = parseBody(req);
+        if (!body.contains("trashDays") || !body["trashDays"].is_number_integer()) {
+            throw BadRequest("trashDays must be a whole number of days");
+        }
+        int days = body["trashDays"].get<int>();
+        if (days < 0 || days > 3650) throw BadRequest("trashDays must be between 0 and 3650");
+        db.setUserTrashDays(user.id, days);
+        if (days > 0) trash.kick();
+        sendJson(res, {{"trashDays", days}});
     }));
 
     // --- Användare (administratör) -----------------------------------------
@@ -1030,6 +1052,33 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         sendJson(res, mail.getMessage(ownedAccountId(db, req, user), refFromQuery(req), markSeen));
     }));
 
+    // Flera meddelandetexter på en gång ur mejlcachen, för appens förhämtning: ett anrop i stället för ett per mejl.
+    // body: {folder, uids}. Det som inte finns i cachen (eller inte ryms i svaret) hamnar i missing, så att klienten
+    // hämtar det ett i taget. Inget märks som läst.
+    server.Post("/api/accounts/:id/messages/bodies",
+                authed([&db, mailCache](const Request& req, Response& res, const User& user) {
+                    long long accountId = ownedAccountId(db, req, user);
+                    if (!mailCache) throw NotFound("The mail cache is off");
+                    json body = parseBody(req);
+                    std::string folder = body.at("folder").get<std::string>();
+                    auto uids = uidsFromJson(body);
+                    if (uids.size() > kBulkBodies) throw BadRequest("At most " + std::to_string(kBulkBodies) + " messages per request");
+                    json messages = json::array();
+                    json missing = json::array();
+                    std::size_t bytes = 0;
+                    for (std::uint32_t uid : uids) {
+                        std::optional<json> m;
+                        if (bytes < kBulkBodyBytes) m = mailCache->message(accountId, MessageRef{folder, uid}, false);
+                        if (!m) {
+                            missing.push_back(uid);
+                            continue;
+                        }
+                        bytes += m->value("text", std::string()).size() + m->value("html", std::string()).size();
+                        messages.push_back(std::move(*m));
+                    }
+                    sendJson(res, {{"messages", messages}, {"missing", missing}});
+                }));
+
     server.Get("/api/accounts/:id/attachment",
                authed([&db, &mail](const Request& req, Response& res, const User& user) {
                    auto att = mail.getAttachment(ownedAccountId(db, req, user), refFromQuery(req),
@@ -1308,13 +1357,50 @@ void registerApi(httplib::Server& server, Database& db, Auth& auth, MailService&
         sendJson(res, aiSorter.feedback(user.id, accountId, parseBody(req)));
     }));
 
-    server.Post("/api/accounts/:id/ai-rules", authed([&db, &aiSorter](const Request& req, Response& res, const User& user) {
-        long long accountId = ownedAccountId(db, req, user);
-        sendJson(res, aiSorter.saveSenderRule(user.id, accountId, parseBody(req)));
+    // --- Regler för inkommande post ---------------------------------------------
+    server.Get("/api/rules", authed([&rules](const Request&, Response& res, const User& user) {
+        sendJson(res, rules.state(user.id));
     }));
 
-    server.Delete("/api/ai/rules/:id", authed([&aiSorter](const Request& req, Response& res, const User& user) {
-        sendJson(res, aiSorter.deleteSenderRule(user.id, pathId(req)));
+    server.Post("/api/accounts/:id/rules", authed([&db, &rules](const Request& req, Response& res, const User& user) {
+        long long accountId = ownedAccountId(db, req, user);
+        sendJson(res, rules.save(user.id, accountId, parseBody(req)));
+    }));
+
+    server.Put("/api/rules/:id", authed([&rules](const Request& req, Response& res, const User& user) {
+        sendJson(res, rules.update(user.id, pathId(req), parseBody(req)));
+    }));
+
+    server.Delete("/api/rules/:id", authed([&rules](const Request& req, Response& res, const User& user) {
+        sendJson(res, rules.remove(user.id, pathId(req)));
+    }));
+
+    server.Put("/api/accounts/:id/rules/order", authed([&db, &rules](const Request& req, Response& res, const User& user) {
+        long long accountId = ownedAccountId(db, req, user);
+        sendJson(res, rules.reorder(user.id, accountId, parseBody(req)));
+    }));
+
+    // Provkör en regel mot en mapp i cachen, utan att flytta något.
+    server.Post("/api/accounts/:id/rules/test", authed([&db, &rules](const Request& req, Response& res, const User& user) {
+        long long accountId = ownedAccountId(db, req, user);
+        sendJson(res, rules.test(user.id, accountId, parseBody(req)));
+    }));
+
+    // Kör reglerna på en hel mapp i bakgrunden.
+    server.Post("/api/accounts/:id/rules/run", authed([&db, &rules](const Request& req, Response& res, const User& user) {
+        long long accountId = ownedAccountId(db, req, user);
+        sendJson(res, rules.run(user.id, accountId, parseBody(req)));
+    }));
+
+    // Förslag på regler ur hur posten är sorterad. Med useAi får AI-tjänsten se avsändare och ämnesrader per mapp.
+    server.Post("/api/accounts/:id/rules/suggest", authed([&db, &rules](const Request& req, Response& res, const User& user) {
+        long long accountId = ownedAccountId(db, req, user);
+        sendJson(res, rules.suggest(user.id, accountId, parseBody(req)));
+    }));
+
+    server.Post("/api/accounts/:id/rules/dismiss", authed([&db, &rules](const Request& req, Response& res, const User& user) {
+        long long accountId = ownedAccountId(db, req, user);
+        sendJson(res, rules.dismiss(user.id, accountId, parseBody(req)));
     }));
 
     server.Delete("/api/ai/examples/:id", authed([&aiSorter](const Request& req, Response& res, const User& user) {

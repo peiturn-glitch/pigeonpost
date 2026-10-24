@@ -9,10 +9,12 @@ The user interface is in English by default, with Swedish available from the sig
 - **Several users, several accounts each.** An administrator creates users; every user adds their own mail accounts. Nobody sees anyone else's mail.
 - **A fast local mirror of your mail.** Folders, headers, flags and message text are cached in MariaDB, so lists, reading and full-text search take milliseconds and keep working when the mail server is slow, down or over quota. Changes still go straight to the mail server.
 - **Gmail without app passwords.** Sign in with Google (OAuth 2.0, XOAUTH2 for IMAP and SMTP) once you have created an OAuth client.
+- **A trash that empties itself.** Deleted messages go to the account's Trash folder and are removed for good after the number of days you pick under Settings (default 30, or never). The clock starts when a message lands in the Trash, also when another mail client put it there. Moving, flagging, archiving and deleting update the list at once and reach the mail server in the background.
 - **Three-pane layout** with configurable panes, a unified **Unread** view across all accounts, server-side search with filters, keyboard shortcuts, dark mode.
 - **Rich-text compose** with inline images and attachments, drafts, reply/reply all/forward with the original's attachments, multiple sender identities per account with their own SMTP settings and signatures.
 - **Safe HTML.** Messages render in a sandboxed iframe without scripts; remote content is blocked until you allow it for a message or a sender.
-- **Sorting with AI.** Gemini, OpenAI, Mistral or any OpenAI-compatible service (for example Ollama) suggests a folder per message. You approve, it learns from corrections, and it can sort new mail or a whole folder in the background with history and undo. Nothing is sent anywhere unless you turn it on and supply your own API key.
+- **Rules for incoming mail.** Conditions on sender, recipient and subject; actions move, mark read, star, junk, delete and stop. Rules run on the server as new mail arrives, without any AI, and can be applied to a whole folder afterwards, with history and undo. The server proposes rules from how you have sorted mail so far (senders that almost always end up in one folder), and with an AI service turned on it can propose more from sender addresses and subject lines per folder; every proposal shows how many messages it would have matched before you accept it.
+- **Sorting with AI.** Gemini, OpenAI, Mistral or any OpenAI-compatible service (for example Ollama) suggests a folder per message. You approve, it learns from corrections, and it can sort new mail or a whole folder in the background with history and undo. Your rules take precedence. Nothing is sent anywhere unless you turn it on and supply your own API key.
 - **Backups** of an account to a zip file, to another IMAP account or to Google Drive, on demand or on a schedule.
 - **Thunderbird import and export** of accounts, identities, SMTP servers and signatures (`prefs.js`).
 - **Android app support:** a delta endpoint for clients that keep their own copy of the cache, push notifications through Firebase Cloud Messaging, and distribution of the app's APK from the server so it can update itself. The app itself is a separate project and not part of this repository.
@@ -81,6 +83,8 @@ node tests/ai-mock/apitest.mjs
 node tests/cache/apitest.mjs
 node tests/changes/apitest.mjs
 node tests/push-mock/apitest.mjs
+node tests/trash/apitest.mjs       # the app container needs TRASH_DAY_SECONDS=2 TRASH_PURGE_INTERVAL=2
+node tests/rules/apitest.mjs       # the app container needs RULE_CHECK_SECONDS=2
 node tests/oauth-mock/apitest.mjs   # see tests/oauth-mock/README.md
 ```
 
@@ -98,6 +102,9 @@ All settings are environment variables; `docker-compose.yml` reads them from `.e
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | *(empty)* | Enables Google sign-in for Gmail. See below. |
 | `AI_EXTRA_PROVIDERS` | *(empty)* | Extra AI services for sorting as `Name=https://host/v1`, comma separated. OpenAI-compatible, no API key. Users can only pick services from this list, so the server cannot be made to call arbitrary URLs. |
 | `MAIL_CACHE` | `1` | `0` turns the mail cache off; everything is then read from the mail server. |
+| `TRASH_PURGE_INTERVAL` | `900` | Seconds between passes of the trash purger, which removes messages that have been in a Trash folder longer than the user's setting. |
+| `TRASH_DAY_SECONDS` | `86400` | How long a "day" is for that setting. Only meant for tests. |
+| `RULE_CHECK_SECONDS` | `300` | How often the rules for incoming mail look for new messages in each inbox. With the mail cache on, the sync tells the rules about new mail right away, so this is only a fallback. |
 | `RAW_CACHE_MB` | `1024` | Size limit for recently opened messages with attachments kept on disk in `/data/cache/raw`. `0` disables. |
 | `FCM_SERVICE_ACCOUNT_FILE` | *(empty)* | Path to a Firebase service-account JSON key. Enables push notifications for the Android app. |
 | `BREVDUVA_ANDROID_DIR` | `/data/android` | Directory with the Android APK and `version.json`, served without login under `/android` so the app can update itself. `/android` is off if the directory is missing. |
@@ -158,6 +165,7 @@ brevduva-server (C++20, cpp-httplib)
   ├─ oauth.cpp          Google OAuth 2.0 with PKCE, token exchange, refresh and revocation
   ├─ push.cpp           Firebase Cloud Messaging (HTTP v1) for the Android app
   ├─ backup.cpp, gdrive.cpp, zip_writer.cpp   Backups to zip, IMAP or Google Drive
+  ├─ rules.cpp          Rules for incoming mail, run as mail arrives; rule proposals from the cache and the AI
   ├─ ai_sort.cpp, ai.cpp                      Sorting with OpenAI-compatible AI services
   ├─ thunderbird_prefs.cpp                    Thunderbird prefs.js import and export
   ├─ db.cpp, db_cache.cpp                     MariaDB: users, sessions, accounts, cache, migrations

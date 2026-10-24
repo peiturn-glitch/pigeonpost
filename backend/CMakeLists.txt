@@ -39,10 +39,12 @@ add_executable(brevduva-server
   src/oauth.cpp
   src/push.cpp
   src/raw_cache.cpp
+  src/rules.cpp
   src/net.cpp
   src/smtp.cpp
   src/text_util.cpp
   src/thunderbird_prefs.cpp
+  src/trash_purger.cpp
   src/zip_writer.cpp
 )
 

@@ -18,8 +18,10 @@ Klienten ansluter till riktiga e-postkonton via IMAP och SMTP, till exempel Gmai
 - Tre paneler: mappar, meddelandelista och läsruta. Under **Layout** väljer du var panelerna ska ligga: mappfältet till vänster, till höger eller dolt, och läsrutan under, ovanför, till höger eller till vänster om listan, eller dold. Storlekarna går att dra om, och valen sparas i webbläsaren. När läsrutan ligger bredvid listan visas meddelandena på två rader. Utan läsruta öppnas ett meddelande i ett eget fönster
 - Backup av ett e-postkonto till en zip-fil, till ett annat IMAP-konto eller till Google Drive, direkt eller enligt schema (se [Backup](#backup))
 - **Olästa**: en vy överst i mapplistan med alla olästa meddelanden i alla konton och mappar (utom papperskorg, skräppost, skickat och utkast), där varje rad visar mapp och konto. Läsa, stjärnmärka, flytta, arkivera och ta bort fungerar direkt i vyn, även för en markering med mejl från flera mappar och konton. Ett mejl du har läst försvinner ur vyn när du går vidare till nästa. Vyn läses ur [mejlcachen](#mejlcache)
+- **Papperskorg som töms av sig själv**: borttagna meddelanden hamnar i kontots papperskorg och tas bort för gott efter det antal dagar du väljer under **Inställningar** i menyn (standard 30, eller aldrig). Tiden räknas från när meddelandet hamnade i papperskorgen, även när ett annat e-postprogram la det där, eftersom IMAP inte sparar någon flyttid (servern antecknar själv när den först såg meddelandet där). Inställningen gäller per användare och även i Android-appen.
 - Sökning i alla mappar och konton på en gång, med filter på avsändare, mottagare, datum, mapp, olästa och bilagor. Med en AI-tjänst kan du beskriva vad du letar efter med egna ord (se [Sök i alla mappar](#sök-i-alla-mappar))
-- Sortering med AI: en AI-tjänst som Gemini föreslår mapp för varje meddelande, och du godkänner innan något flyttas. Ny post kan också sorteras automatiskt i bakgrunden, och servern kan gå igenom en hel mapp med tusentals meddelanden på egen hand, med historik och ångra. Sorteringen lär sig av dina rättningar och föreslår fasta regler för avsändare (se [Sortera med AI](#sortera-med-ai))
+- Regler för inkommande post: villkor på avsändare, mottagare och ämne, med flytt, läst, stjärna, skräppost eller papperskorg som åtgärd. Reglerna körs på servern när posten kommer, utan AI, och kan köras på en hel mapp i efterhand. Servern föreslår regler utifrån hur du har sorterat hittills, och med en AI-tjänst kan den föreslå fler (se [Regler för inkommande post](#regler-för-inkommande-post))
+- Sortering med AI: en AI-tjänst som Gemini föreslår mapp för varje meddelande, och du godkänner innan något flyttas. Ny post kan också sorteras automatiskt i bakgrunden, och servern kan gå igenom en hel mapp med tusentals meddelanden på egen hand, med historik och ångra. Sorteringen lär sig av dina rättningar, och dina regler går alltid före (se [Sortera med AI](#sortera-med-ai))
 - Läsa text- och HTML-meddelanden. HTML visas i en sandlådad iframe utan skript, och fjärrinnehåll (spårningspixlar och liknande) blockeras tills du tillåter det, för det mejlet eller för alla mejl från avsändaren
 - Inbäddade bilder (`cid:`) och nedladdning av bilagor
 - Skriva, svara, svara alla och vidarebefordra (med originalets bilagor), med bilagor via knapp eller dra-och-släpp
@@ -138,12 +140,14 @@ PigeonPost speglar varje kontos mappar, rubriker, flaggor och meddelandetext (te
 - **Sökning** går i ämne, avsändare, mottagare och meddelandets text (fulltextindex). Varje sökord ska finnas med och matchar början av ord. Ord med färre än tre tecken söks bara i ämne och adresser.
 - **Sortering** görs i databasen. En mapp som inte hunnit in i cachen (eller väntar på avstämning efter en ändring) sorteras av mejlservern om den stöder IMAP-tillägget `SORT`; annars visas den i ankomstordning, som för det mesta är datumordning. Gmail saknar `SORT`, så dess virtuella mappar visas alltid i ankomstordning.
 - **Virtuella mappar** (Gmails *Alla meddelanden*, *Stjärnmärkt* och *Viktigt*) cachas inte. De visar mejl som redan ligger i andra mappar, och skulle annars ge dubbletter i sökningen och i vyn över olästa. De läses direkt från mejlservern.
-- **Ändringar** (flytta, ta bort, flagga, skicka) görs som förut direkt mot mejlservern, och cachen uppdateras samtidigt. De kräver alltså att mejlservern går att nå. När den inte gör det visas en rad under kontot, och läsning och sökning fortsätter att fungera på det som är sparat.
+- **Ändringar** (flytta, ta bort, flagga, skicka) görs som förut direkt mot mejlservern, och cachen uppdateras samtidigt. Listan i webbgränssnittet uppdateras på en gång och anropet går i bakgrunden; misslyckas det visas felet och listan läses in igen. Ändringarna kräver alltså att mejlservern går att nå. När den inte gör det visas en rad under kontot, och läsning och sökning fortsätter att fungera på det som är sparat.
 - **Bilagor och inbäddade bilder** hämtas från mejlservern när de behövs. Hela meddelanden som öppnats sparas som filer i `/data/cache/raw` (högst `RAW_CACHE_MB`, standard 1 GB; de äldsta tas bort först), så att bilagor i nyligen lästa meddelanden går att öppna igen utan mejlservern.
 - **Stora meddelanden** (över 512 kB) hämtas bara till en del vid synken: texten sparas och är sökbar, men listan över bilagor blir fullständig först när meddelandet har öppnats en gång med kontakt med mejlservern.
 - Gmails **Alla mail** och **Stjärnmärkt** cachas inte, eftersom de bara innehåller kopior. De läses direkt från mejlservern.
 - **Lagring:** HTML och text komprimeras. Räkna med 5–15 kB per meddelande, alltså några hundra MB för en brevlåda med 50 000 meddelanden. Texten lagras **okrypterad**, så att den går att söka i; den som kommer åt databasen kan läsa den. Cachen tas bort tillsammans med kontot.
 - **Ändringslista för appen:** varje skrivning i cachen får ett stigande ändringsnummer (`modseq`), och borttagna meddelanden lämnar en gravsten i 14 dagar. Android-appen hämtar bara det som ändrats sedan dess senaste nummer med `GET /api/accounts/:id/changes`, se [REST-API](#rest-api-i-korthet).
+- `TRASH_PURGE_INTERVAL` (standard 900 sekunder) styr hur ofta papperskorgarna gås igenom för tömning; `TRASH_DAY_SECONDS` (standard 86 400) är bara till för testerna.
+- `RULE_CHECK_SECONDS` (standard 300) är hur ofta reglerna för inkommande post letar efter ny post när cachen inte har sagt till.
 - `MAIL_CACHE=0` stänger av cachen helt. Då läses allt direkt från mejlservern som i tidigare versioner.
 
 ## Formaterade meddelanden
@@ -198,9 +202,9 @@ Under fliken **Automatiskt** slår du på sortering av ny post per konto. Server
 Sorteringen lär sig av det du ändrar, så att samma fel inte behöver rättas gång på gång.
 
 - **Rättningar:** när du byter mapp på ett förslag, tackar nej till det (bockar ur det eller väljer *Ligger kvar*) eller ångrar en automatisk flytt sparas det som en rättning: avsändare, ämne, vad AI:n föreslog och vad du valde. Vid varje sortering får AI:n upp till 30 rättningar som exempel, först de för samma avsändare och domän som mejlen i omgången, sedan de senaste. Det gäller manuell sortering, automatisk sortering och hela mappar i bakgrunden. Inget nytt slags data lämnar servern: avsändare och ämne skickas redan vid sortering.
-- **Avsändarregler:** när du har gjort samma val tre gånger i rad för en avsändare föreslår dialogen en fast regel, till exempel "Mejl från kund@bredband.se → Ekonomi". En regel gäller före AI:n och kostar inget AI-anrop, så den är gratis, snabb och ger alltid samma resultat. **Nej tack** gör att förslaget inte kommer tillbaka. Regler går också att lägga till för hand under **Inställningar → Inlärt**, för en adress eller en hel domän (`@exempel.se`), och kan säga att mejlen ska ligga kvar. En regel för adressen går före en för domänen.
-- Utan granskning (automatiskt och i bakgrunden) används regler som alla andra, men aldrig till papperskorgen: sådana mejl ligger kvar tills du sorterar dem själv.
-- Under **Inställningar → Inlärt** ser du regler och rättningar och kan ta bort dem. Högst 5 000 beslut sparas per konto. Reglerna och rättningarna följer med när en mapp byter namn.
+- **Regelförslag:** när du har gjort samma val tre gånger i rad för en avsändare föreslår dialogen en regel, till exempel "Mejl från kund@bredband.se → Ekonomi". Regeln hamnar bland [reglerna för inkommande post](#regler-för-inkommande-post), gäller före AI:n och kostar inget AI-anrop. **Nej tack** gör att förslaget inte kommer tillbaka.
+- Utan granskning (automatiskt och i bakgrunden) följs reglerna som alltid, men aldrig till papperskorgen: sådana mejl ligger kvar tills du sorterar dem själv.
+- Under **Inställningar → Inlärt** ser du rättningarna och kan ta bort dem. Högst 5 000 beslut sparas per konto. Rättningarna följer med när en mapp byter namn.
 
 ### Hela mappen i bakgrunden
 
@@ -211,6 +215,21 @@ Med **Sortera hela mappen i bakgrunden** går servern själv igenom mappen, utan
 - Förloppet visas överst på fliken **Sortera**, med antal flyttade per mapp. Jobbet går att **pausa**, **fortsätta** och **avbryta**. Ett konto har ett jobb i taget.
 - Varje flytt hamnar i historiken under **Automatiskt** och går att ångra för sig. **Ångra allt** flyttar tillbaka allt jobbet har flyttat, också i bakgrunden, så länge historiken finns kvar (30 dagar). Efter **Ångra allt** går mappen att sortera igen, till exempel med bättre regler. En flytt du har ångrat för sig görs däremot aldrig om.
 - Jobbet och den manuella sorteringen delar märke: **Fortsätt bakåt där du slutade** tar vid där jobbet slutade, och ett jobb som startas med det valet fortsätter där du själv slutade.
+
+## Regler för inkommande post
+
+Under **Meny → Regler** (eller högerklick på ett meddelande → **Skapa regel från meddelandet…**) gör du regler som körs på servern när ny post kommer till inkorgen, utan någon AI-tjänst och även när du inte är inloggad.
+
+- **Villkor:** avsändare, mottagare eller ämne som *innehåller*, *är*, *börjar med* eller *slutar med* en text, eller en hel avsändardomän (`@exempel.se`). En regel kan ha upp till tio villkor, och du väljer om alla eller något av dem ska stämma. Jämförelsen bryr sig inte om stora och små bokstäver.
+- **Åtgärder:** flytta till en mapp, markera som skräppost, ta bort (till papperskorgen), markera som läst, stjärnmärk, och **sluta efter den här regeln**. Reglerna körs i den ordning de står; flytta dem upp och ned i listan. En regel utan flytt som bara stoppar betyder "ligger kvar", vilket också AI-sorteringen respekterar.
+- **Provkörning:** medan du skriver regeln visas hur många meddelanden i inkorgen den skulle träffa, med några exempel. Det kräver [mejlcachen](#mejlcache).
+- **Ny post:** reglerna tar bara post som kommer efter att regeln sparades. Mejlcachens synk säger till så fort något nytt har kommit; utan cachen kontrolleras inkorgen var femte minut (`RULE_CHECK_SECONDS`). Högst 50 meddelanden per kontroll; resten tas direkt efter.
+- **Kör på hela inkorgen:** **Kör reglerna nu** går igenom allt som ligger i inkorgen i bakgrunden, nyast först, och visar hur många som flyttades.
+- **Historik och ångra:** varje flytt sparas i samma historik som AI-sorteringen i 30 dagar, med regelns namn. **Ångra** flyttar tillbaka meddelandet, och det sorteras då inte igen av regeln. Regeln följer med när en mapp byter namn; pekar den på en mapp som tagits bort ligger meddelandet kvar och felet syns i serverloggen.
+
+**Förslag på regler.** Med **Föreslå regler** tittar servern på hur du redan har sorterat: avsändare med minst tre meddelanden som till minst 80 procent ligger i en och samma mapp (utom inkorg, skickat, utkast, skräppost och papperskorg) föreslås som regel till den mappen, och när flera avsändare från samma domän alla hamnar i samma mapp föreslås en domänregel i stället. Varje förslag visar hur många meddelanden som ligger i mappen, hur många som ligger någon annanstans och hur många som fortfarande ligger i inkorgen. **Nej tack** gör att avsändaren inte föreslås igen.
+
+Med **Fråga också AI:n** (kräver en AI-tjänst under [Sortera med AI](#sortera-med-ai)) får AI-tjänsten se mapparnas namn, de vanligaste avsändarna per mapp och ett urval avsändare och ämnesrader per mapp och ur inkorgen, aldrig något innehåll. Den kan då föreslå regler på ämnesrader, till exempel ett nyhetsbrevs namn. Allt den föreslår kontrolleras som en vanlig regel och provkörs mot cachen: bara regler som träffar minst två meddelanden i mappen, och till minst 70 procent träffar rätt mapp, visas. Du avgör själv vilka förslag som blir regler.
 
 ## Sök i alla mappar
 
@@ -252,6 +271,7 @@ Googles regler att känna till:
 PigeonPost har en Android-app (ett eget projekt, inte med i det här repot) som speglar mejlcachen i telefonen, så att mejl går att läsa utan uppkoppling, och som visar notiser när ny post kommer. Appen pratar med samma API som webbgränssnittet, med två tillägg:
 
 - **Ändringslistan** `GET /api/accounts/:id/changes?since=` ger bara det som ändrats sedan appens senaste synk (nya och ändrade meddelanden, borttagna meddelanden och mapplistan), se [Mejlcache](#mejlcache).
+- **Texter i bunt** `POST /api/accounts/:id/messages/bodies` med `{folder, uids}` ger upp till 100 meddelandetexter ur mejlcachen i ett svar (det som inte finns i cachen listas i `missing`), så att appen kan hämta en stor brevlåda utan ett anrop per mejl.
 - **Push-notiser** skickas med Firebase Cloud Messaging när synken ser ny post i en mapp som telefonen bevakar (inkorgen från början; andra mappar väljs i appen). Servern skickar bara ett datameddelande med avsändare och ämne; appen ritar notisen och hämtar sedan ändringarna. Mejl som redan är lästa, ligger i Skickat, Utkast, Skräppost eller Papperskorgen, kom före förra synken (t.ex. flyttats in från en annan mapp) eller tillhör en första synk ger ingen notis, och ett mejl som flyttas mellan bevakade mappar ger inte en andra.
 
 Så slår du på push:
@@ -364,6 +384,7 @@ npm run dev
 | Metod | Sökväg | Beskrivning |
 |-------|--------|-------------|
 | GET/POST | `/api/session`, `/api/setup`, `/api/login`, `/api/logout`, `POST /api/me/password` | Installation, inloggning och eget lösenord. `/api/session` visar `expiresAt` för sessionen |
+| GET/PUT | `/api/settings` (`{ trashDays }`) | Inställningar per användare: efter hur många dagar meddelanden i papperskorgen tas bort (0 = aldrig, högst 3650). Samma värde finns i `user` från `/api/session` |
 | POST | `/api/session/renew` | Byter till en ny session med full livslängd (14 dagar) och tar bort den gamla. Appen använder den så att en telefon som används regelbundet inte loggas ut |
 | GET/POST/PUT/DELETE | `/api/users[/:id]` | Användarhantering (endast administratör) |
 | GET/POST/PUT/DELETE | `/api/accounts[/:id]`, `POST /api/accounts/test` | Konton (listan innehåller `identities`) |

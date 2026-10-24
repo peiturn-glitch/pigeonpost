@@ -21,6 +21,8 @@ struct User {
     long long id = 0;
     std::string username;
     bool isAdmin = false;
+    // Meddelanden som legat så här många dagar i papperskorgen tas bort av TrashPurger. 0 = aldrig.
+    int trashDays = 30;
     std::int64_t createdAt = 0;
 };
 
@@ -152,6 +154,7 @@ struct AiSortLogEntry {
     std::int64_t movedAt = 0;
     std::int64_t undoneAt = 0;  // 0 = inte ångrad.
     long long jobId = 0;        // Bakgrundsjobbet som gjorde flytten. 0 = den automatiska sorteringen av ny post.
+    long long ruleId = 0;       // Regeln som gjorde flytten. 0 = AI-sorteringen.
 };
 
 // Ett beslut som användaren har tagit om ett meddelande vid AI-sortering. När suggested och chosen skiljer sig åt är
@@ -169,15 +172,39 @@ struct AiSortExample {
     std::int64_t createdAt = 0;
 };
 
-// En fast regel: mejl från en avsändare hamnar alltid i samma mapp, utan att AI:n tillfrågas.
-struct AiSenderRule {
+// En regel för inkommande post: villkor på avsändare, mottagare och ämne, och vad som ska göras när de
+// stämmer. Reglerna gäller per konto och körs i positionsordning på ny post i inkorgen, utan någon AI-tjänst.
+// conditions är en JSON-lista [{field: from|to|subject, op: contains|is|starts|ends|domain, value}] och actions ett
+// JSON-objekt {move?: mapp, read?: true, star?: true, junk?: true, trash?: true, stop?: true}.
+struct MailRule {
     long long id = 0;
     long long userId = 0;
     long long accountId = 0;
-    std::string sender;      // En adress ("a@exempel.se") eller en domän ("@exempel.se"), gemener.
-    std::string target;      // Tom = ligger alltid kvar.
-    bool dismissed = false;  // Användaren har tackat nej till en regel för avsändaren; föreslå den inte igen.
+    std::string name;
+    bool enabled = true;
+    int position = 0;
+    bool matchAll = true;  // Alla villkor måste stämma; annars räcker ett.
+    std::string conditions;
+    std::string actions;
     std::int64_t createdAt = 0;
+    std::int64_t updatedAt = 0;
+};
+
+// Hur långt regelkörningen har kommit i ett kontos inkorg, som AiAutoRule: meddelanden med högre UID än lastUid är
+// nya, och uidValidity 0 betyder att märket sätts vid nästa kontroll utan att något körs.
+struct RuleState {
+    long long accountId = 0;
+    std::int64_t uidValidity = 0;
+    std::int64_t lastUid = 0;
+    std::int64_t nextCheckAt = 0;
+    std::int64_t lastRunAt = 0;
+    std::string lastError;
+};
+
+// En avsändare som användaren har tackat nej till en regel för; föreslå den inte igen.
+struct DismissedSender {
+    long long accountId = 0;
+    std::string sender;  // Adress eller domän ("@exempel.se"), gemener.
 };
 
 // Sortering av en hel mapp i bakgrunden. Jobbet går bakåt från de senaste meddelandena, en omgång i taget.
@@ -385,6 +412,7 @@ public:
     std::optional<long long> createFirstAdmin(const std::string& username, const std::string& passwordHash);
     void setUserPassword(long long id, const std::string& passwordHash);
     void setUserAdmin(long long id, bool isAdmin);
+    void setUserTrashDays(long long id, int days);
     void deleteUser(long long id);  // Tar även bort användarens konton och sessioner.
 
     // --- Sessioner (token lagras som SHA-256) ---
@@ -458,6 +486,14 @@ public:
     void addRemoteSender(long long userId, const std::string& sender);
     void deleteRemoteSender(long long userId, const std::string& sender);
 
+    // --- Papperskorgen: när varje meddelande först sågs där, för tömning efter ett antal dagar ---
+    // uid -> tidpunkt (sekunder) för meddelandena i kontots papperskorg med den UIDVALIDITY som gäller nu.
+    std::map<std::uint32_t, std::int64_t> trashSeen(long long accountId, std::uint32_t uidValidity);
+    // Sparar första gången uids sågs (rader som redan finns rörs inte) och tar bort rader för andra UIDVALIDITY.
+    void recordTrashSeen(long long accountId, std::uint32_t uidValidity, const std::vector<std::uint32_t>& uids,
+                         std::int64_t seenAt);
+    void deleteTrashSeen(long long accountId, std::uint32_t uidValidity, const std::vector<std::uint32_t>& uids);
+
     // --- AI-sortering ---
     std::optional<AiSettings> getAiSettings(long long userId);
     // Sparar inställningarna som de aktiva, och nyckeln och modellen för just den tjänsten, så att de finns kvar när
@@ -495,10 +531,22 @@ public:
     bool deleteAiSortExample(long long id, long long userId);
     void clearAiSortExamples(long long userId);
 
-    void saveAiSenderRule(const AiSenderRule& rule);
-    std::vector<AiSenderRule> listAiSenderRules(long long userId);
-    std::vector<AiSenderRule> aiSenderRulesFor(long long accountId);
-    bool deleteAiSenderRule(long long id, long long userId);
+    // --- Regler för inkommande post ---
+    std::vector<MailRule> listRules(long long userId);
+    std::vector<MailRule> rulesFor(long long accountId);  // I positionsordning, även avstängda.
+    std::optional<MailRule> getRule(long long id);
+    long long addRule(const MailRule& rule);  // Hamnar sist.
+    void updateRule(const MailRule& rule);
+    bool deleteRule(long long id, long long userId);
+    // Ny ordning för kontots regler; regler som inte nämns hamnar efter de nämnda.
+    void reorderRules(long long accountId, const std::vector<long long>& ids);
+    std::optional<RuleState> getRuleState(long long accountId);
+    void saveRuleState(const RuleState& state);
+    // Konton med påslagna regler vars kontroll är förfallen.
+    std::vector<RuleState> dueRuleStates(std::int64_t now);
+    void setRuleCheckDue(long long accountId);
+    std::vector<DismissedSender> listDismissedSenders(long long userId);
+    void addDismissedSender(long long userId, long long accountId, const std::string& sender);
     // En mapp har bytt namn: regler och exempel ska peka på den nya sökvägen.
     void renameAiLearningFolder(long long accountId, const std::string& from, const std::string& to);
 
@@ -574,6 +622,16 @@ public:
     CacheSearchResult searchCacheMessages(const CacheSearchQuery& query);
     std::optional<CacheMessage> getCacheMessage(long long folderId, std::uint32_t uid);
     std::optional<CacheBody> getCacheBody(long long messageRowId);
+    // Rubrikraderna i en mapp, nyast först, högst limit stycken. För regelförslag och provkörning av regler.
+    std::vector<CacheMessage> cacheFolderHeaders(long long folderId, int limit);
+    struct SenderCount {
+        std::string folder;
+        std::string email;  // Gemener.
+        std::string name;
+        std::int64_t count = 0;
+    };
+    // Antal meddelanden per avsändare och mapp i kontot, de största först; bara par med minst minCount meddelanden.
+    std::vector<SenderCount> cacheSenderCounts(long long accountId, int minCount, int limit);
     CacheProgress cacheProgress(long long accountId);
     // --- Ändringar för klienter med egen kopia av cachen (appen) ---
     CacheSeq cacheSeq();
